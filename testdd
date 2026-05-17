@@ -4,20 +4,18 @@ local Notification = NothingLibrary.Notification();
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
-local TeleportService = game:GetService("TeleportService")
 
 -- ==================== AUTO EXECUTE (ข้ามเซิร์ฟ) ====================
--- ระบบจะฝังสคริปต์ไว้กับตัวผู้เล่น เมื่อเปลี่ยนเซิร์ฟเวอร์หรือ TP มันจะรันอัตโนมัติ
-if not game:IsLoaded() then game.Loaded:Wait() end
-local scriptUrl = "YOUR_RAW_SCRIPT_URL_HERE" -- ถ้าคุณเอาสคริปต์ไปอัปโหลดไว้ที่ไหน ใส่ลิงก์ตรงนี้จะทำให้ข้ามเซิร์ฟได้สมบูรณ์
-TeleportService.OnTeleport:Connect(function(state)
-    if state == Enum.TeleportState.Started then
-        if scriptUrl ~= "YOUR_RAW_SCRIPT_URL_HERE" then
-            local y = loadstring(game:HttpGetAsync(scriptUrl))
-            if y then y() end
-        end
+-- ใส่ลิงก์ Raw ของสคริปต์นี้ของคุณที่นี่ (ถ้าไม่ใส่ ระบบข้ามเซิร์ฟจะไม่ทำงาน แต่สคริปต์อื่นใช้ได้ปกติ)
+local scriptUrl = "YOUR_RAW_SCRIPT_URL_HERE" 
+
+if queueonteleport then
+    if scriptUrl ~= "YOUR_RAW_SCRIPT_URL_HERE" then
+        queueonteleport("loadstring(game:HttpGet('"..scriptUrl.."'))()")
     end
-end)
+else
+    warn("Executor นี้ไม่รองรับ queueonteleport (Auto Execute ข้ามเซิร์ฟไม่ทำงาน)")
+end
 
 -- ==================== CONFIG STATE ====================
 local Config = {
@@ -70,7 +68,7 @@ ScreenGui.Parent = game.CoreGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 200, 0, 200) -- เพิ่มขนาดรับ UV กับ Salt
+MainFrame.Size = UDim2.new(0, 200, 0, 200)
 MainFrame.Position = UDim2.new(1, -220, 0, 20)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 MainFrame.BackgroundTransparency = 0.3
@@ -112,9 +110,9 @@ CreateEvidenceLabel("EMF Level 5")
 CreateEvidenceLabel("Ghost Orb")
 CreateEvidenceLabel("Ghost Writing")
 CreateEvidenceLabel("Freezing Temp")
-CreateEvidenceLabel("Ultraviolet") -- เพิ่ม UV
+CreateEvidenceLabel("Ultraviolet")
 CreateEvidenceLabel("SLS Ghost")
-CreateEvidenceLabel("Salt Stepped") -- เพิ่ม Salt
+CreateEvidenceLabel("Salt Stepped")
 
 local function UpdateEvidence(name, isFound)
     if EvidenceState[name] and EvidenceState[name].Found ~= isFound then
@@ -176,21 +174,20 @@ SectionMasterCurse:NewButton({Title = "ปิด ESP ไอเทมคำสา
     Notification.new({Title = "Cursed", Description = "ปิดทั้งหมดแล้ว", Duration = 3})
 end})
 
--- Curse Items (แก้ Path)
+-- Curse Items
 SectionCurse:NewToggle({Title = "Summoning Circle", Default = false, Callback = function(tr) Config.SummoningCircleESP = tr end})
 SectionCurse:NewToggle({Title = "BooBoo Doll", Default = false, Callback = function(tr) Config.BooBooDollESP = tr end})
 SectionCurse:NewToggle({Title = "Music Box", Default = false, Callback = function(tr) Config.MusicBoxESP = tr end})
 SectionCurse:NewToggle({Title = "Tarot Cards", Default = false, Callback = function(tr) Config.TarotCardsESP = tr end})
 SectionCurse:NewToggle({Title = "Spirit Board", Default = false, Callback = function(tr) Config.SpiritBoardESP = tr end})
 
--- Utility (แก้ Fullbright)
+-- Utility (Fullbright แก้ไขให้ปิดแล้วกลับเป็นปกติ)
 SectionUtil:NewToggle({
     Title = "Fullbright (ไฟสว่าง)",
     Default = false,
     Callback = function(tr) 
         Config.Fullbright = tr 
         if not tr then
-            -- คืนค่าแสงเมื่อปิด
             Lighting.Brightness = OriginalLighting.Brightness
             Lighting.ClockTime = OriginalLighting.ClockTime
             Lighting.FogEnd = OriginalLighting.FogEnd
@@ -200,7 +197,7 @@ SectionUtil:NewToggle({
     end
 })
 
--- Scripts
+-- Scripts (Infinite Yield)
 SectionScripts:NewButton({
     Title = "Infinite Yield",
     Callback = function()
@@ -432,7 +429,7 @@ task.spawn(function()
         UpdateEvidence("Freezing Temp", isFreezing)
         if isFreezing and not freezeAlerted then Notification.new({Title = "🥶 เจอหลักฐาน!", Description = "ตรวจพบ Freezing Temperature", Duration = 5}) freezeAlerted = true elseif not isFreezing then freezeAlerted = false end
 
-        -- Ghost & SLS_GHOST (แก้บัคการมองไม่เห็นผี)
+        -- Ghost & SLS_GHOST
         local ghost = workspace:FindFirstChild("Ghost")
         if Config.GhostESP and ghost then
             AddESP(ghost, "Ghost", Color3.fromRGB(255, 50, 50))
@@ -520,12 +517,12 @@ task.spawn(function()
         UpdateEvidence("Ghost Writing", writingFound)
         if writingFound and not writingAlerted then Notification.new({Title = "📝 เจอหลักฐาน!", Description = "ตรวจพบ Ghost Writing", Duration = 5}) writingAlerted = true elseif not writingFound then writingAlerted = false end
 
-        -- Cursed Items ESP (แก้บัค Object ไม่มีในแมพแต่ยังโชว์ / แก้ Path Tarot)
+        -- Cursed Items ESP
         local cursePaths = {
             {ConfigKey = "SummoningCircleESP", Name = "Circle", Path = "SummoningCircle", Icon = "🔮", Color = Color3.fromRGB(170, 0, 255)},
             {ConfigKey = "BooBooDollESP", Name = "BooBoo", Path = "BooBooDoll", Icon = "🧸", Color = Color3.fromRGB(255, 0, 255)},
             {ConfigKey = "MusicBoxESP", Name = "MusicBox", Path = "Map.CursedSpawns.Music Box", Icon = "🎵", Color = Color3.fromRGB(255, 200, 0)},
-            {ConfigKey = "TarotCardsESP", Name = "Tarot", Path = "Map.Items.Tarot Cards", Icon = "🃏", Color = Color3.fromRGB(255, 100, 150)}, -- แก้ Path ตามที่คุณบอก
+            {ConfigKey = "TarotCardsESP", Name = "Tarot", Path = "Map.Items.Tarot Cards", Icon = "🃏", Color = Color3.fromRGB(255, 100, 150)},
             {ConfigKey = "SpiritBoardESP", Name = "SpiritBoard", Path = "Spirit Board", Icon = "🟫", Color = Color3.fromRGB(200, 200, 200)}
         }
 
@@ -533,7 +530,6 @@ task.spawn(function()
             local obj = nil
             pcall(function() obj = workspace:FindFirstChild(item.Path, true) end)
             
-            -- เช็คว่ามีของจริงในเกมไหม ถ้าไม่มีจะไม่ ESP ให้ (กันบัคของหายแต่ชื่อยังติด)
             if Config[item.ConfigKey] and obj then
                 AddESP(obj, item.Name, item.Color)
                 local pos = GetPosition(obj)
@@ -549,6 +545,6 @@ end)
 
 Notification.new({
     Title = "GHOST HUB",
-    Description = "สคริปต์โหลดสำเร็จ! (Ultimate Edition)",
+    Description = "สคริปต์โหลดสำเร็จ! (Ultimate Fixed)",
     Duration = 5
 })
