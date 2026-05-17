@@ -5,28 +5,40 @@ local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
+-- ==================== AUTO EXECUTE (ข้ามเซิร์ฟ) ====================
+-- ใส่ลิงก์ Raw ของสคริปต์นี้ของคุณที่นี่ (ถ้าไม่ใส่ ระบบข้ามเซิร์ฟจะไม่ทำงาน แต่สคริปต์อื่นใช้ได้ปกติ)
+local scriptUrl = "https://raw.githubusercontent.com/Biixd/LegoScirpt/refs/heads/main/LegoScript" 
+
+if queueonteleport then
+    if scriptUrl ~= "https://raw.githubusercontent.com/Biixd/LegoScirpt/refs/heads/main/LegoScript" then
+        queueonteleport("loadstring(game:HttpGet('"..scriptUrl.."'))()")
+    end
+else
+    warn("Executor นี้ไม่รองรับ queueonteleport (Auto Execute ข้ามเซิร์ฟไม่ทำงาน)")
+end
+
 -- ==================== CONFIG STATE ====================
 local Config = {
-    PlayerESP = false,
-    GeneratorESP = false,
-    ColdestRoomESP = false,
-    GhostESP = false,
-    SLSGhostESP = false,
-    EMFReaderESP = false,
-    SummoningCircleESP = false,
-    BooBooDollESP = false,
-    MusicBoxESP = false,
-    TarotCardsESP = false,
-    SpiritBoardESP = false,
-    Fullbright = false,
-    SelectedPlayer = "All",
-    ShowEvidenceBoard = true
+    PlayerESP = false, GeneratorESP = false, ColdestRoomESP = false,
+    GhostESP = false, SLSGhostESP = false, EMFReaderESP = false, GhostOrbESP = false,
+    SummoningCircleESP = false, BooBooDollESP = false, MusicBoxESP = false,
+    TarotCardsESP = false, SpiritBoardESP = false, Fullbright = false,
+    SelectedPlayer = "All", ShowEvidenceBoard = true
+}
+
+-- บันทึกค่าแสงสว่างดั้งเดิมไว้เพื่อนำมาคืนเมื่อปิด Fullbright
+local OriginalLighting = {
+    Brightness = Lighting.Brightness,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+    GlobalShadows = Lighting.GlobalShadows,
+    Ambient = Lighting.Ambient
 }
 
 -- ==================== UI SETUP ====================
 local Windows = NothingLibrary.new({
     Title = "GHOST HUB",
-    Description = "Nothing UI Edition",
+    Description = "Ultimate Edition",
     Keybind = Enum.KeyCode.LeftControl,
     Logo = 'http://www.roblox.com/asset/?id=18898582662'
 })
@@ -37,10 +49,16 @@ local TabCurse = Windows:NewTab({Title = "Cursed Items", Description = "ไอ�
 local TabUtility = Windows:NewTab({Title = "Utility", Description = "เครื่องมือเสริม", Icon = "rbxassetid://7733964719"})
 
 local SectionMainESP = TabESP:NewSection({Title = "Main ESP", Position = "Left"})
+local SectionMasterESP = TabESP:NewSection({Title = "Master Toggle", Position = "Left"})
 local SectionPlayerESP = TabESP:NewSection({Title = "Player ESP", Position = "Right"})
+
 local SectionAutoDetect = TabEvidence:NewSection({Title = "Auto Detect System", Position = "Left"})
+
 local SectionCurse = TabCurse:NewSection({Title = "Cursed Objects", Position = "Left"})
+local SectionMasterCurse = TabCurse:NewSection({Title = "Master Toggle", Position = "Left"})
+
 local SectionUtil = TabUtility:NewSection({Title = "Environment", Position = "Left"})
+local SectionScripts = TabUtility:NewSection({Title = "Scripts", Position = "Right"})
 
 -- ==================== EVIDENCE OVERLAY GUI ====================
 local ScreenGui = Instance.new("ScreenGui")
@@ -50,7 +68,7 @@ ScreenGui.Parent = game.CoreGui
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 200, 0, 175) -- เพิ่มความสูงรับ SLS Ghost
+MainFrame.Size = UDim2.new(0, 200, 0, 200)
 MainFrame.Position = UDim2.new(1, -220, 0, 20)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 MainFrame.BackgroundTransparency = 0.3
@@ -85,16 +103,16 @@ local function CreateEvidenceLabel(name)
     label.Text = "❌ " .. name
     label.TextColor3 = Color3.fromRGB(255, 100, 100)
     label.Parent = MainFrame
-    
     EvidenceState[name] = {Label = label, Found = false}
-    return label
 end
 
 CreateEvidenceLabel("EMF Level 5")
 CreateEvidenceLabel("Ghost Orb")
 CreateEvidenceLabel("Ghost Writing")
 CreateEvidenceLabel("Freezing Temp")
-CreateEvidenceLabel("SLS Ghost") -- เพิ่มหลักฐานผีกล้อง
+CreateEvidenceLabel("Ultraviolet")
+CreateEvidenceLabel("SLS Ghost")
+CreateEvidenceLabel("Salt Stepped")
 
 local function UpdateEvidence(name, isFound)
     if EvidenceState[name] and EvidenceState[name].Found ~= isFound then
@@ -116,44 +134,80 @@ for _, p in pairs(Players:GetPlayers()) do
 end
 
 -- ==================== UI ELEMENTS ====================
+
+-- Master Toggles ESP
+SectionMasterESP:NewButton({Title = "เปิด ESP ทั้งหมด", Callback = function()
+    Config.GeneratorESP = true; Config.ColdestRoomESP = true; Config.GhostESP = true
+    Config.SLSGhostESP = true; Config.EMFReaderESP = true; Config.GhostOrbESP = true; Config.PlayerESP = true
+    Notification.new({Title = "ESP", Description = "เปิดทั้งหมดแล้ว", Duration = 3})
+end})
+SectionMasterESP:NewButton({Title = "ปิด ESP ทั้งหมด", Callback = function()
+    Config.GeneratorESP = false; Config.ColdestRoomESP = false; Config.GhostESP = false
+    Config.SLSGhostESP = false; Config.EMFReaderESP = false; Config.GhostOrbESP = false; Config.PlayerESP = false
+    Notification.new({Title = "ESP", Description = "ปิดทั้งหมดแล้ว", Duration = 3})
+end})
+
+-- Main ESP
 SectionMainESP:NewToggle({Title = "EMF Reader ESP", Default = false, Callback = function(tr) Config.EMFReaderESP = tr end})
 SectionMainESP:NewToggle({Title = "Generator ESP", Default = false, Callback = function(tr) Config.GeneratorESP = tr end})
 SectionMainESP:NewToggle({Title = "Coldest Room ESP", Default = false, Callback = function(tr) Config.ColdestRoomESP = tr end})
-SectionMainESP:NewToggle({Title = "Ghost ESP (ผีธรรมดา)", Default = false, Callback = function(tr) Config.GhostESP = tr end})
-SectionMainESP:NewToggle({Title = "SLS Ghost ESP (ผีกล้อง)", Default = false, Callback = function(tr) Config.SLSGhostESP = tr end})
+SectionMainESP:NewToggle({Title = "Ghost Orb ESP", Default = false, Callback = function(tr) Config.GhostOrbESP = tr end})
+SectionMainESP:NewToggle({Title = "Ghost ESP", Default = false, Callback = function(tr) Config.GhostESP = tr end})
+SectionMainESP:NewToggle({Title = "SLS Ghost ESP", Default = false, Callback = function(tr) Config.SLSGhostESP = tr end})
 
+-- Player ESP
 SectionPlayerESP:NewToggle({Title = "Player ESP", Default = false, Callback = function(tr) Config.PlayerESP = tr end})
 SectionPlayerESP:NewDropdown({Title = "Select Player", Data = PlayerList, Default = "All", Callback = function(a) Config.SelectedPlayer = a end})
 
-SectionAutoDetect:NewToggle({
-    Title = "Show Evidence Board",
-    Default = true,
-    Callback = function(tr) 
-        Config.ShowEvidenceBoard = tr 
-        MainFrame.Visible = tr
-    end,
-})
+-- Evidence
+SectionAutoDetect:NewToggle({Title = "Show Evidence Board", Default = true, Callback = function(tr) Config.ShowEvidenceBoard = tr MainFrame.Visible = tr end})
 
+-- Master Toggles Curse
+SectionMasterCurse:NewButton({Title = "เปิด ESP ไอเทมคำสาปทั้งหมด", Callback = function()
+    Config.SummoningCircleESP = true; Config.BooBooDollESP = true; Config.MusicBoxESP = true
+    Config.TarotCardsESP = true; Config.SpiritBoardESP = true
+    Notification.new({Title = "Cursed", Description = "เปิดทั้งหมดแล้ว", Duration = 3})
+end})
+SectionMasterCurse:NewButton({Title = "ปิด ESP ไอเทมคำสาปทั้งหมด", Callback = function()
+    Config.SummoningCircleESP = false; Config.BooBooDollESP = false; Config.MusicBoxESP = false
+    Config.TarotCardsESP = false; Config.SpiritBoardESP = false
+    Notification.new({Title = "Cursed", Description = "ปิดทั้งหมดแล้ว", Duration = 3})
+end})
+
+-- Curse Items
 SectionCurse:NewToggle({Title = "Summoning Circle", Default = false, Callback = function(tr) Config.SummoningCircleESP = tr end})
 SectionCurse:NewToggle({Title = "BooBoo Doll", Default = false, Callback = function(tr) Config.BooBooDollESP = tr end})
 SectionCurse:NewToggle({Title = "Music Box", Default = false, Callback = function(tr) Config.MusicBoxESP = tr end})
 SectionCurse:NewToggle({Title = "Tarot Cards", Default = false, Callback = function(tr) Config.TarotCardsESP = tr end})
 SectionCurse:NewToggle({Title = "Spirit Board", Default = false, Callback = function(tr) Config.SpiritBoardESP = tr end})
 
-SectionUtil:NewToggle({Title = "Fullbright (ไฟสว่าง)", Default = false, Callback = function(tr) Config.Fullbright = tr end})
+-- Utility (Fullbright แก้ไขให้ปิดแล้วกลับเป็นปกติ)
+SectionUtil:NewToggle({
+    Title = "Fullbright (ไฟสว่าง)",
+    Default = false,
+    Callback = function(tr) 
+        Config.Fullbright = tr 
+        if not tr then
+            Lighting.Brightness = OriginalLighting.Brightness
+            Lighting.ClockTime = OriginalLighting.ClockTime
+            Lighting.FogEnd = OriginalLighting.FogEnd
+            Lighting.GlobalShadows = OriginalLighting.GlobalShadows
+            Lighting.Ambient = OriginalLighting.Ambient
+        end
+    end
+})
+
+-- Scripts (Infinite Yield)
+SectionScripts:NewButton({
+    Title = "Infinite Yield",
+    Callback = function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'))()
+        Notification.new({Title = "Script", Description = "Injected Infinite Yield", Duration = 5})
+    end
+})
+
 
 -- ==================== OPTIMIZED ESP SYSTEM ====================
-local function GetAdornee(obj)
-    if not obj then return nil end
-    if obj:IsA("BasePart") then return obj end
-    if obj:IsA("Model") then
-        if obj.PrimaryPart then return obj.PrimaryPart end
-        local part = obj:FindFirstChildWhichIsA("BasePart")
-        if part then return part end
-    end
-    return nil
-end
-
 local function GetPosition(obj)
     if not obj then return nil end
     if obj:IsA("BasePart") then return obj.Position end
@@ -170,30 +224,27 @@ end
 local function AddESP(parent, name, color)
     if not parent then return end
     if parent:FindFirstChild("NOTHING_ESP_"..name) then return end
-    local adornee = GetAdornee(parent)
     local pos = GetPosition(parent)
-    if not adornee and not pos then return end 
+    if not pos then return end 
 
     local folder = Instance.new("Folder")
     folder.Name = "NOTHING_ESP_"..name
     folder.Parent = parent
 
-    if adornee then
-        local highlight = Instance.new("Highlight")
-        highlight.FillColor = color
-        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        highlight.FillTransparency = 0.5
-        highlight.OutlineTransparency = 0
-        highlight.Adornee = parent:IsA("Model") and parent or adornee
-        highlight.Parent = folder
-    end
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = color
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Adornee = parent:IsA("Model") and parent or (parent:IsA("BasePart") and parent or nil)
+    highlight.Parent = folder
 
     local billboard = Instance.new("BillboardGui")
-    billboard.Size = UDim2.new(0, 150, 0, 30) 
+    billboard.Size = UDim2.new(0, 200, 0, 30) 
     billboard.AlwaysOnTop = true
     billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.Adornee = adornee
-    if not adornee and pos then
+    billboard.Adornee = parent:IsA("BasePart") and parent or (parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart"))
+    if not billboard.Adornee then
         billboard.Adornee = nil
         billboard.ExtentsOffsetWorldSpace = pos
     end
@@ -227,24 +278,30 @@ local function UpdateESPText(parent, name, newText)
     end
 end
 
-local function UpdateESPColor(parent, name, newColor)
-    if not parent then return end
-    local folder = parent:FindFirstChild("NOTHING_ESP_"..name)
-    if folder then
-        local highlight = folder:FindFirstChildWhichIsA("Highlight")
-        if highlight then highlight.FillColor = newColor end
-        local billboard = folder:FindFirstChildWhichIsA("BillboardGui")
-        if billboard then
-            local label = billboard:FindFirstChildWhichIsA("TextLabel")
-            if label then label.TextColor3 = newColor end
-        end
-    end
-end
-
 local function RemoveESP(parent, name)
     if not parent then return end
     local esp = parent:FindFirstChild("NOTHING_ESP_"..name)
     if esp then esp:Destroy() end
+end
+
+-- ฟังก์ชันหาชื่อห้องจากตำแหน่ง (สำหรับ Ghost Orb)
+local function GetRoomFromPosition(pos)
+    if not pos then return "Unknown" end
+    local closestDist = math.huge
+    local closestRoom = "Unknown"
+    pcall(function()
+        for _, zone in pairs(workspace.Map.Zones:GetChildren()) do
+            local zonePos = GetPosition(zone)
+            if zonePos then
+                local dist = (pos - zonePos).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closestRoom = zone.Name
+                end
+            end
+        end
+    end)
+    return closestRoom
 end
 
 -- ==================== MAIN LOGIC LOOP ====================
@@ -255,6 +312,8 @@ task.spawn(function()
     local writingAlerted = false
     local emf5Alerted = false
     local freezeAlerted = false
+    local uvAlerted = false
+    local saltAlerted = false
     
     while true do
         task.wait(0.3) 
@@ -293,60 +352,40 @@ task.spawn(function()
             end
         end
 
-        -- EMF Reader ESP & Auto Detect (เช็คจาก Material == Neon)
+        -- EMF Reader ESP (เช็ค Material Neon)
         local isEMF5Present = false
         local emfSuccess, emfItem = pcall(function() return workspace.Map.Items:FindFirstChild("EMF Reader") end)
-        
         if emfSuccess and emfItem then
             local currentLevel = 0
-            -- วนลูปจาก 5 ลงมา 1 เพื่อหาระดับสูงสุดที่เปิดไฟอยู่
             for i = 5, 1, -1 do
                 local levelFolder = emfItem:FindFirstChild(tostring(i))
                 if levelFolder then
                     local hasNeon = false
-                    -- เช็คทุกชิ้นส่วนในโฟลเดอร์ว่ามี Material เป็น Neon ไหม
                     for _, desc in pairs(levelFolder:GetDescendants()) do
                         if desc:IsA("BasePart") and desc.Material == Enum.Material.Neon then
                             hasNeon = true
                             break
                         end
                     end
-                    
                     if hasNeon then
                         currentLevel = i
                         if i == 5 then isEMF5Present = true end
-                        break -- เจอระดับสูงสุดแล้ว หยุดลูป
+                        break
                     end
                 end
             end
-
             if Config.EMFReaderESP then
                 if currentLevel > 0 then
-                    local emfColor = Color3.fromRGB(0, 255, 0)
-                    if currentLevel == 5 then
-                        emfColor = Color3.fromRGB(255, 0, 0)
-                    elseif currentLevel >= 3 then
-                        emfColor = Color3.fromRGB(255, 255, 0)
-                    end
-                    
+                    local emfColor = currentLevel == 5 and Color3.fromRGB(255, 0, 0) or (currentLevel >= 3 and Color3.fromRGB(255, 255, 0) or Color3.fromRGB(0, 255, 0))
                     AddESP(emfItem, "EMF", emfColor)
                     local pos = GetPosition(emfItem)
                     local dist = lpRoot and pos and math.floor((myPos - pos).Magnitude) or "?"
                     UpdateESPText(emfItem, "EMF", "📡 ["..dist.."m] EMF Lv."..currentLevel)
-                    UpdateESPColor(emfItem, "EMF", emfColor)
-                else
-                    RemoveESP(emfItem, "EMF")
-                end
-            else
-                RemoveESP(emfItem, "EMF")
-            end
+                else RemoveESP(emfItem, "EMF") end
+            else RemoveESP(emfItem, "EMF") end
         end
-
         UpdateEvidence("EMF Level 5", isEMF5Present)
-        if isEMF5Present and not emf5Alerted then
-            Notification.new({Title = "📡 เจอหลักฐาน!", Description = "ตรวจพบ EMF Level 5 (Neon)", Duration = 5, Icon = "rbxassetid://8997385628"})
-            emf5Alerted = true
-        elseif not isEMF5Present then emf5Alerted = false end
+        if isEMF5Present and not emf5Alerted then Notification.new({Title = "📡 เจอหลักฐาน!", Description = "ตรวจพบ EMF Level 5", Duration = 5}) emf5Alerted = true elseif not isEMF5Present then emf5Alerted = false end
 
         -- Generator & Coldest Room
         local genSuccess, generators = pcall(function() return workspace.Map.Generators:GetChildren() end)
@@ -368,19 +407,14 @@ task.spawn(function()
         if zoneSuccess then
             local coldestTemp = math.huge
             local coldestRoom = nil
-            
             for _, zone in pairs(zones) do
                 for _, child in pairs(zone:GetChildren()) do
                     if child.Name:find("Temperature") and child:IsA("NumberValue") then
                         if child.Value < 0 then isFreezing = true end
-                        if child.Value < coldestTemp then
-                            coldestTemp = child.Value
-                            coldestRoom = zone
-                        end
+                        if child.Value < coldestTemp then coldestTemp = child.Value; coldestRoom = zone end
                     end
                 end
             end
-
             if Config.ColdestRoomESP and coldestRoom then
                 local freezeColor = coldestTemp < 0 and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(0, 200, 255)
                 AddESP(coldestRoom, "ColdRoom", freezeColor)
@@ -388,17 +422,12 @@ task.spawn(function()
                 local dist = lpRoot and pos and math.floor((myPos - pos).Magnitude) or "?"
                 local tempStr = string.format("%.4f", coldestTemp)
                 UpdateESPText(coldestRoom, "ColdRoom", "❄️ ["..dist.."m] "..coldestRoom.Name.." ("..tempStr.."°)")
-                UpdateESPColor(coldestRoom, "ColdRoom", freezeColor)
             elseif not Config.ColdestRoomESP then
                 for _, zone in pairs(zones) do RemoveESP(zone, "ColdRoom") end
             end
         end
-
         UpdateEvidence("Freezing Temp", isFreezing)
-        if isFreezing and not freezeAlerted then
-            Notification.new({Title = "🥶 เจอหลักฐาน!", Description = "ตรวจพบ Freezing Temperature", Duration = 5, Icon = "rbxassetid://8997385628"})
-            freezeAlerted = true
-        elseif not isFreezing then freezeAlerted = false end
+        if isFreezing and not freezeAlerted then Notification.new({Title = "🥶 เจอหลักฐาน!", Description = "ตรวจพบ Freezing Temperature", Duration = 5}) freezeAlerted = true elseif not isFreezing then freezeAlerted = false end
 
         -- Ghost & SLS_GHOST
         local ghost = workspace:FindFirstChild("Ghost")
@@ -407,46 +436,72 @@ task.spawn(function()
             local pos = GetPosition(ghost)
             local dist = lpRoot and pos and math.floor((myPos - pos).Magnitude) or "?"
             UpdateESPText(ghost, "Ghost", "👻 ["..dist.."m] GHOST!")
-            if not ghostAlerted then
-                Notification.new({Title = "👻 ผีเกิดแล้ว!", Description = "ระวัง! Ghost ปรากฏตัวแล้ว", Duration = 5, Icon = "rbxassetid://8997385628"})
-                ghostAlerted = true
-            end
+            if not ghostAlerted then Notification.new({Title = "👻 ผีเกิดแล้ว!", Description = "ระวัง! Ghost ปรากฏตัวแล้ว", Duration = 5}) ghostAlerted = true end
         else
             if ghost then RemoveESP(ghost, "Ghost") end
             if not ghost then ghostAlerted = false end
         end
 
-        -- SLS Ghost (เป็นทั้ง ESP และ Evidence)
         local slsGhost = workspace:FindFirstChild("SLS_GHOST")
         local isSLSVisible = slsGhost ~= nil
-        
         if Config.SLSGhostESP and slsGhost then
             AddESP(slsGhost, "SLS", Color3.fromRGB(255, 150, 0))
             local pos = GetPosition(slsGhost)
             local dist = lpRoot and pos and math.floor((myPos - pos).Magnitude) or "?"
             UpdateESPText(slsGhost, "SLS", "📷 ["..dist.."m] SLS GHOST!")
-            if not slsAlerted then
-                Notification.new({Title = "📷 เจอผีผ่านกล้อง!", Description = "ระวัง! SLS_GHOST ปรากฏตัวแล้ว", Duration = 5, Icon = "rbxassetid://8997385628"})
-                slsAlerted = true
-            end
+            if not slsAlerted then Notification.new({Title = "📷 เจอผีผ่านกล้อง!", Description = "ระวัง! SLS_GHOST ปรากฏตัวแล้ว", Duration = 5}) slsAlerted = true end
         else
             if slsGhost then RemoveESP(slsGhost, "SLS") end
             if not slsGhost then slsAlerted = false end
         end
-        
         UpdateEvidence("SLS Ghost", isSLSVisible)
 
-        -- Evidence System (Orb & Writing)
+        -- Ghost Orb ESP & Room Finder
         local orbFound = false
-        pcall(function()
-            if workspace.Map.Orbs:FindFirstChild("OrbPart") then orbFound = true end
+        local orbPos = nil
+        pcall(function() 
+            local orbPart = workspace.Map.Orbs:FindFirstChild("OrbPart") 
+            if orbPart then 
+                orbFound = true
+                orbPos = GetPosition(orbPart)
+                if Config.GhostOrbESP then
+                    AddESP(orbPart, "Orb", Color3.fromRGB(200, 0, 255))
+                    local dist = lpRoot and orbPos and math.floor((myPos - orbPos).Magnitude) or "?"
+                    local roomName = GetRoomFromPosition(orbPos)
+                    UpdateESPText(orbPart, "Orb", "🔮 ["..dist.."m] Orb ("..roomName..")")
+                else
+                    RemoveESP(orbPart, "Orb")
+                end
+            else
+                pcall(function() RemoveESP(workspace.Map.Orbs.OrbPart, "Orb") end)
+            end
         end)
         UpdateEvidence("Ghost Orb", orbFound)
-        if orbFound and not orbAlerted then
-            Notification.new({Title = "🔮 เจอหลักฐาน!", Description = "ตรวจพบ Ghost Orb", Duration = 5, Icon = "rbxassetid://8997385628"})
-            orbAlerted = true
-        elseif not orbFound then orbAlerted = false end
+        if orbFound and not orbAlerted then Notification.new({Title = "🔮 เจอหลักฐาน!", Description = "ตรวจพบ Ghost Orb", Duration = 5}) orbAlerted = true elseif not orbFound then orbAlerted = false end
 
+        -- Ultraviolet (UV) Evidence
+        local uvFound = false
+        pcall(function()
+            local prints = workspace.Map:FindFirstChild("Prints")
+            if prints and (prints:FindFirstChild("UV_BootL") or prints:FindFirstChild("UV_BootR")) then
+                uvFound = true
+            end
+        end)
+        UpdateEvidence("Ultraviolet", uvFound)
+        if uvFound and not uvAlerted then Notification.new({Title = "💡 เจอหลักฐาน!", Description = "ตรวจพบ Ultraviolet (UV)", Duration = 5}) uvAlerted = true elseif not uvFound then uvAlerted = false end
+
+        -- Salt Stepped Evidence & Alert
+        local saltStepped = false
+        pcall(function()
+            if workspace:FindFirstChild("SaltStepped") then saltStepped = true end
+        end)
+        UpdateEvidence("Salt Stepped", saltStepped)
+        if saltStepped and not saltAlerted then 
+            Notification.new({Title = "🧂 ผีเหยียบเกลือ!", Description = "ระวัง! ผีเดินผ่านเกลือแล้ว", Duration = 5}) 
+            saltAlerted = true 
+        elseif not saltStepped then saltAlerted = false end
+
+        -- Ghost Writing
         local writingFound = false
         pcall(function()
             local book = workspace.Map.Items["Ghost Writing Book"]
@@ -454,27 +509,21 @@ task.spawn(function()
                 local handle = book:FindFirstChild("Handle")
                 if handle then
                     for _, child in pairs(handle:GetChildren()) do
-                        if string.match(child.Name, "^Writing%d+$") then
-                            writingFound = true
-                            break
-                        end
+                        if string.match(child.Name, "^Writing%d+$") then writingFound = true; break end
                     end
                 end
             end
         end)
         UpdateEvidence("Ghost Writing", writingFound)
-        if writingFound and not writingAlerted then
-            Notification.new({Title = "📝 เจอหลักฐาน!", Description = "ตรวจพบ Ghost Writing", Duration = 5, Icon = "rbxassetid://8997385628"})
-            writingAlerted = true
-        elseif not writingFound then writingAlerted = false end
+        if writingFound and not writingAlerted then Notification.new({Title = "📝 เจอหลักฐาน!", Description = "ตรวจพบ Ghost Writing", Duration = 5}) writingAlerted = true elseif not writingFound then writingAlerted = false end
 
-        -- Cursed Items ESP (แก้ Path Tarot Cards และ Spirit Board)
+        -- Cursed Items ESP
         local cursePaths = {
             {ConfigKey = "SummoningCircleESP", Name = "Circle", Path = "SummoningCircle", Icon = "🔮", Color = Color3.fromRGB(170, 0, 255)},
             {ConfigKey = "BooBooDollESP", Name = "BooBoo", Path = "BooBooDoll", Icon = "🧸", Color = Color3.fromRGB(255, 0, 255)},
             {ConfigKey = "MusicBoxESP", Name = "MusicBox", Path = "Map.CursedSpawns.Music Box", Icon = "🎵", Color = Color3.fromRGB(255, 200, 0)},
-            {ConfigKey = "TarotCardsESP", Name = "Tarot", Path = "Map.Items.Tarot Cards", Icon = "🃏", Color = Color3.fromRGB(255, 100, 150)}, -- ย้ายไป Map.Items
-            {ConfigKey = "SpiritBoardESP", Name = "SpiritBoard", Path = "Spirit Board", Icon = "🟫", Color = Color3.fromRGB(200, 200, 200)} -- workspace["Spirit Board"]
+            {ConfigKey = "TarotCardsESP", Name = "Tarot", Path = "Map.Items.Tarot Cards", Icon = "🃏", Color = Color3.fromRGB(255, 100, 150)},
+            {ConfigKey = "SpiritBoardESP", Name = "SpiritBoard", Path = "Spirit Board", Icon = "🟫", Color = Color3.fromRGB(200, 200, 200)}
         }
 
         for _, item in pairs(cursePaths) do
@@ -496,7 +545,6 @@ end)
 
 Notification.new({
     Title = "GHOST HUB",
-    Description = "สคริปต์โหลดสำเร็จ!",
-    Duration = 5,
-    Icon = "rbxassetid://8997385628"
+    Description = "สคริปต์โหลดสำเร็จ! (Ultimate Fixed)",
+    Duration = 5
 })
