@@ -10,7 +10,7 @@ local LocalPlayer = Players.LocalPlayer
 local scriptUrl = "https://raw.githubusercontent.com/Biixd/LegoScirpt/refs/heads/main/LegoScript" 
 
 if queueonteleport then
-    if scriptUrl ~= "https://raw.githubusercontent.com/Biixd/LegoScirpt/refs/heads/main/LegoScript" then
+    if scriptUrl ~= "" then
         queueonteleport("loadstring(game:HttpGet('"..scriptUrl.."'))()")
     end
 else
