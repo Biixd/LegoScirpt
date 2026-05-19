@@ -1,808 +1,1047 @@
-local NothingLibrary = loadstring(game:HttpGetAsync('https://raw.githubusercontent.com/3345-c-a-t-s-u-s/NOTHING/main/source.lua'))();
-local Notification = NothingLibrary.Notification();
+-- Ghost Hub Optimized
+-- Focus: lower workspace scan cost, cleaner ESP lifecycle, mobile-friendly overlay.
+
+local ENV = (getgenv and getgenv()) or _G
+if ENV.GhostHubOptimizedUnload then
+    pcall(ENV.GhostHubOptimizedUnload)
+end
+
+local NothingLibrary = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/3345-c-a-t-s-u-s/NOTHING/main/source.lua"))()
+local Notification = NothingLibrary.Notification()
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
--- ==================== AUTO EXECUTE ====================
-local scriptUrl = ""
-if queueonteleport then
-    if scriptUrl ~= "" then
-        queueonteleport("loadstring(game:HttpGet('"..scriptUrl.."'))()")
-    end
-else
-    warn("Executor นี้ไม่รองรับ queueonteleport")
+local Running = true
+local Connections = {}
+
+local function connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(Connections, connection)
+    return connection
 end
 
--- ==================== CONFIG ====================
+local scriptUrl = ENV.GHOST_HUB_URL or ""
+local queueTeleport = queue_on_teleport or queueonteleport
+if queueTeleport and scriptUrl ~= "" then
+    queueTeleport("loadstring(game:HttpGet('" .. scriptUrl .. "'))()")
+end
+
 local Config = {
-    PlayerESP = false, GeneratorESP = false, ColdestRoomESP = false,
-    GhostESP = false, SLSGhostESP = false, EMFReaderESP = false, GhostOrbESP = false,
-    SummoningCircleESP = false, BooBooDollESP = false, MusicBoxESP = false,
-    TarotCardsESP = false, SpiritBoardESP = false, Fullbright = false,
-    SelectedPlayer = "All", ShowEvidenceBoard = true,
-    ShowSpeedTracker = true
+    PlayerESP = false,
+    GeneratorESP = false,
+    ColdestRoomESP = false,
+    GhostESP = false,
+    SLSGhostESP = false,
+    EMFReaderESP = false,
+    GhostOrbESP = false,
+    SummoningCircleESP = false,
+    BooBooDollESP = false,
+    MusicBoxESP = false,
+    TarotCardsESP = false,
+    SpiritBoardESP = false,
+    Fullbright = false,
+    SelectedPlayer = "All",
+    ShowEvidenceBoard = true,
+    ShowSpeedTracker = true,
+    Notifications = true
 }
 
 local OriginalLighting = {
-    Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime,
-    FogEnd = Lighting.FogEnd, GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient
+    Brightness = Lighting.Brightness,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+    GlobalShadows = Lighting.GlobalShadows,
+    Ambient = Lighting.Ambient
 }
 
--- ==================== UI LIBRARY ====================
-local Windows = NothingLibrary.new({
-    Title = "GHOST HUB", Description = "Ultimate Edition",
-    Keybind = Enum.KeyCode.LeftControl,
-    Logo = 'http://www.roblox.com/asset/?id=18898582662'
-})
+local Colors = {
+    Player = Color3.fromRGB(95, 255, 140),
+    Generator = Color3.fromRGB(255, 220, 80),
+    ColdRoom = Color3.fromRGB(80, 190, 255),
+    Freezing = Color3.fromRGB(60, 255, 255),
+    Ghost = Color3.fromRGB(255, 70, 70),
+    SLS = Color3.fromRGB(255, 150, 60),
+    EMF = Color3.fromRGB(90, 255, 120),
+    Orb = Color3.fromRGB(210, 110, 255),
+    Curse = Color3.fromRGB(220, 120, 255),
+    Good = Color3.fromRGB(80, 255, 130),
+    Bad = Color3.fromRGB(255, 105, 105),
+    Text = Color3.fromRGB(235, 238, 245),
+    Muted = Color3.fromRGB(165, 170, 180),
+    Panel = Color3.fromRGB(13, 15, 20)
+}
 
-local TabESP      = Windows:NewTab({Title="ESP",          Description="มองเห็นสิ่งต่างๆ",  Icon="rbxassetid://7733960981"})
-local TabEvidence = Windows:NewTab({Title="Evidence",     Description="ตรวจจับหลักฐาน",   Icon="rbxassetid://7733964719"})
-local TabCurse    = Windows:NewTab({Title="Cursed Items", Description="ไอเทมคำสาป",       Icon="rbxassetid://7743869054"})
-local TabUtility  = Windows:NewTab({Title="Utility",      Description="เครื่องมือเสริม",   Icon="rbxassetid://7733964719"})
+local function notify(title, description, duration)
+    if Config.Notifications then
+        Notification.new({
+            Title = title,
+            Description = description,
+            Duration = duration or 4
+        })
+    end
+end
 
-local SectionMainESP     = TabESP:NewSection({Title="Main ESP",       Position="Left"})
-local SectionMasterESP   = TabESP:NewSection({Title="Master Toggle",  Position="Left"})
-local SectionPlayerESP   = TabESP:NewSection({Title="Player ESP",     Position="Right"})
-local SectionAutoDetect  = TabEvidence:NewSection({Title="Auto Detect System", Position="Left"})
-local SectionCurse       = TabCurse:NewSection({Title="Cursed Objects",  Position="Left"})
-local SectionMasterCurse = TabCurse:NewSection({Title="Master Toggle",   Position="Left"})
-local SectionUtil        = TabUtility:NewSection({Title="Environment",   Position="Left"})
-local SectionScripts     = TabUtility:NewSection({Title="Scripts",       Position="Right"})
+local function child(parent, name)
+    return parent and parent:FindFirstChild(name) or nil
+end
 
--- ==================== HELPER: MAKE DRAGGABLE ====================
-local function MakeDraggable(frame, dragHandle)
-    local dragging, dragStart, startPos = false, nil, nil
-    dragHandle.InputBegan:Connect(function(input)
+local function map()
+    return workspace:FindFirstChild("Map")
+end
+
+local function getAdornee(object)
+    if not object then return nil end
+    if object:IsA("BasePart") then
+        return object
+    end
+    if object:IsA("Model") then
+        return object.PrimaryPart or object:FindFirstChildWhichIsA("BasePart", true)
+    end
+    return object:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function getPosition(object)
+    local part = getAdornee(object)
+    if part then
+        return part.Position
+    end
+
+    if object and object:IsA("Model") then
+        local ok, pivot = pcall(function()
+            return object:GetPivot()
+        end)
+        if ok and pivot then
+            return pivot.Position
+        end
+    end
+
+    return nil
+end
+
+local function getDistanceText(fromPosition, object)
+    local position = getPosition(object)
+    if not fromPosition or not position then
+        return "?"
+    end
+    return tostring(math.floor((fromPosition - position).Magnitude))
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "GhostHubOptimized"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = CoreGui
+
+local ESPContainer = Instance.new("Folder")
+ESPContainer.Name = "ESP"
+ESPContainer.Parent = ScreenGui
+
+local ESP = {}
+
+local function destroyESP(id)
+    local entry = ESP[id]
+    if not entry then return end
+    if entry.Highlight then entry.Highlight:Destroy() end
+    if entry.Billboard then entry.Billboard:Destroy() end
+    ESP[id] = nil
+end
+
+local function destroyESPWithPrefix(prefix)
+    local ids = {}
+    for id in pairs(ESP) do
+        if string.sub(id, 1, #prefix) == prefix then
+            table.insert(ids, id)
+        end
+    end
+    for _, id in ipairs(ids) do
+        destroyESP(id)
+    end
+end
+
+local function setESP(id, object, text, color)
+    if not object or not object.Parent then
+        destroyESP(id)
+        return
+    end
+
+    local adornee = getAdornee(object)
+    if not adornee then
+        destroyESP(id)
+        return
+    end
+
+    local entry = ESP[id]
+    if entry and entry.Object ~= object then
+        destroyESP(id)
+        entry = nil
+    end
+
+    if not entry then
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "GH_Highlight_" .. id
+        highlight.FillTransparency = 0.62
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Adornee = (object:IsA("Model") or object:IsA("BasePart")) and object or adornee
+        highlight.Parent = ESPContainer
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "GH_Label_" .. id
+        billboard.Size = UDim2.fromOffset(190, 28)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.AlwaysOnTop = true
+        billboard.MaxDistance = 1500
+        billboard.Adornee = adornee
+        billboard.Parent = ESPContainer
+
+        local label = Instance.new("TextLabel")
+        label.Name = "Text"
+        label.Size = UDim2.fromScale(1, 1)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.TextScaled = true
+        label.TextStrokeTransparency = 0
+        label.TextStrokeColor3 = Color3.new(0, 0, 0)
+        label.Parent = billboard
+
+        entry = {
+            Object = object,
+            Highlight = highlight,
+            Billboard = billboard,
+            Label = label
+        }
+        ESP[id] = entry
+    end
+
+    entry.Highlight.FillColor = color
+    entry.Highlight.OutlineColor = color
+    entry.Billboard.Adornee = adornee
+    entry.Label.Text = text
+    entry.Label.TextColor3 = color
+end
+
+local function createPanel(name, titleText)
+    local frame = Instance.new("Frame")
+    frame.Name = name
+    frame.BackgroundColor3 = Colors.Panel
+    frame.BackgroundTransparency = 0.12
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.ClipsDescendants = true
+    frame.Parent = ScreenGui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(65, 72, 86)
+    stroke.Transparency = 0.35
+    stroke.Parent = frame
+
+    local scale = Instance.new("UIScale")
+    scale.Parent = frame
+
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 10)
+    padding.PaddingRight = UDim.new(0, 10)
+    padding.PaddingTop = UDim.new(0, 8)
+    padding.PaddingBottom = UDim.new(0, 8)
+    padding.Parent = frame
+
+    local list = Instance.new("UIListLayout")
+    list.Padding = UDim.new(0, 5)
+    list.SortOrder = Enum.SortOrder.LayoutOrder
+    list.Parent = frame
+
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 24)
+    header.BackgroundTransparency = 1
+    header.LayoutOrder = 1
+    header.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, -30, 1, 0)
+    title.BackgroundTransparency = 1
+    title.Text = titleText
+    title.TextColor3 = Colors.Text
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 13
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = header
+
+    local button = Instance.new("TextButton")
+    button.Name = "Collapse"
+    button.Size = UDim2.fromOffset(24, 22)
+    button.Position = UDim2.new(1, -24, 0, 1)
+    button.BackgroundColor3 = Color3.fromRGB(42, 48, 60)
+    button.BorderSizePixel = 0
+    button.Text = "-"
+    button.TextColor3 = Colors.Text
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 14
+    button.Parent = header
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
+
+    return frame, header, button, scale
+end
+
+local function addLabel(parent, order, text, size)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, size or 19)
+    label.BackgroundTransparency = 1
+    label.LayoutOrder = order
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextColor3 = Colors.Muted
+    label.Text = text
+    label.Parent = parent
+    return label
+end
+
+local EvidenceFrame, EvidenceHeader, EvidenceCollapse, EvidenceScale = createPanel("EvidenceBoard", "EVIDENCE")
+local SpeedFrame, SpeedHeader, SpeedCollapse, SpeedScale = createPanel("SpeedTracker", "GHOST SPEED")
+
+local EvidenceState = {}
+local EvidenceNames = {
+    "EMF Level 5",
+    "Ghost Orb",
+    "Ghost Writing",
+    "Freezing Temp",
+    "Ultraviolet",
+    "SLS Ghost",
+    "Salt Stepped"
+}
+
+for index, name in ipairs(EvidenceNames) do
+    EvidenceState[name] = {
+        Found = false,
+        Label = addLabel(EvidenceFrame, index + 1, "NO  " .. name, 19)
+    }
+    EvidenceState[name].Label.TextColor3 = Colors.Bad
+end
+
+local SpeedValueLabel = addLabel(SpeedFrame, 2, "Speed: --", 24)
+SpeedValueLabel.Font = Enum.Font.GothamBold
+SpeedValueLabel.TextSize = 16
+local SpeedStatusLabel = addLabel(SpeedFrame, 3, "Status: waiting for ghost", 19)
+local SpeedAvgLabel = addLabel(SpeedFrame, 4, "Avg: -- | Max: --", 18)
+
+local function updateEvidence(name, found)
+    local state = EvidenceState[name]
+    if not state or state.Found == found then return end
+    state.Found = found
+    state.Label.Text = (found and "YES " or "NO  ") .. name
+    state.Label.TextColor3 = found and Colors.Good or Colors.Bad
+end
+
+local function clampOverlay(frame)
+    local viewport = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+    local size = frame.AbsoluteSize
+    local x = math.clamp(frame.Position.X.Offset, 6, math.max(6, viewport.X - size.X - 6))
+    local y = math.clamp(frame.Position.Y.Offset, 6, math.max(6, viewport.Y - size.Y - 6))
+    frame.Position = UDim2.fromOffset(x, y)
+end
+
+local function makeDraggable(frame, handle)
+    local dragging = false
+    local dragStart
+    local startPos
+
+    connect(handle.InputBegan, function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
         end
     end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
+
+    connect(UserInputService.InputChanged, function(input)
+        if not dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.fromOffset(startPos.X.Offset + delta.X, startPos.Y.Offset + delta.Y)
+        clampOverlay(frame)
     end)
-    UserInputService.InputEnded:Connect(function(input)
+
+    connect(UserInputService.InputEnded, function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
 end
 
--- ==================== EVIDENCE OVERLAY GUI ====================
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "GhostHubOverlay"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = game.CoreGui
+makeDraggable(EvidenceFrame, EvidenceHeader)
+makeDraggable(SpeedFrame, SpeedHeader)
 
--- Evidence Board
-local EvidFrame = Instance.new("Frame")
-EvidFrame.Name = "EvidenceBoard"
-EvidFrame.Size = UDim2.new(0, 220, 0, 240)
-EvidFrame.Position = UDim2.new(1, -240, 0, 20)
-EvidFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-EvidFrame.BackgroundTransparency = 0.3
-EvidFrame.BorderSizePixel = 0
-EvidFrame.Active = true
-EvidFrame.Parent = ScreenGui
-Instance.new("UICorner", EvidFrame).CornerRadius = UDim.new(0, 8)
+local evidenceCollapsed = false
+local speedCollapsed = false
 
-local EvidPad = Instance.new("UIPadding", EvidFrame)
-EvidPad.PaddingLeft = UDim.new(0, 8); EvidPad.PaddingRight = UDim.new(0, 8)
-EvidPad.PaddingTop = UDim.new(0, 5); EvidPad.PaddingBottom = UDim.new(0, 5)
+local function layoutOverlay()
+    Camera = workspace.CurrentCamera
+    local viewport = Camera and Camera.ViewportSize or Vector2.new(1280, 720)
+    local mobile = UserInputService.TouchEnabled or viewport.X < 760
+    local scale = mobile and 0.9 or 1
+    local width = mobile and math.clamp(math.floor(viewport.X * 0.44), 165, 220) or 220
+    local speedWidth = mobile and math.clamp(math.floor(viewport.X * 0.44), 165, 210) or 210
 
-local EvidList = Instance.new("UIListLayout", EvidFrame)
-EvidList.Padding = UDim.new(0, 4)
+    EvidenceScale.Scale = scale
+    SpeedScale.Scale = scale
+    EvidenceFrame.Size = UDim2.fromOffset(width, evidenceCollapsed and 38 or 214)
+    SpeedFrame.Size = UDim2.fromOffset(speedWidth, speedCollapsed and 38 or 108)
 
--- Evidence Header
-local EvidHeader = Instance.new("Frame", EvidFrame)
-EvidHeader.Size = UDim2.new(1, 0, 0, 26)
-EvidHeader.BackgroundTransparency = 1
-
-local EvidTitle = Instance.new("TextLabel", EvidHeader)
-EvidTitle.Size = UDim2.new(1, -30, 1, 0)
-EvidTitle.BackgroundTransparency = 1
-EvidTitle.Text = "🔍 EVIDENCE BOARD"
-EvidTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-EvidTitle.Font = Enum.Font.GothamBold
-EvidTitle.TextSize = 14
-EvidTitle.TextXAlignment = Enum.TextXAlignment.Left
-
--- Resize button for Evidence Board
-local evidIsLarge = true
-local EvidResizeBtn = Instance.new("TextButton", EvidHeader)
-EvidResizeBtn.Size = UDim2.new(0, 24, 0, 24)
-EvidResizeBtn.Position = UDim2.new(1, -24, 0, 1)
-EvidResizeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-EvidResizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-EvidResizeBtn.Font = Enum.Font.GothamBold
-EvidResizeBtn.TextSize = 13
-EvidResizeBtn.Text = "⊟"
-EvidResizeBtn.BorderSizePixel = 0
-Instance.new("UICorner", EvidResizeBtn).CornerRadius = UDim.new(0, 4)
-
-EvidResizeBtn.MouseButton1Click:Connect(function()
-    evidIsLarge = not evidIsLarge
-    if evidIsLarge then
-        EvidFrame.Size = UDim2.new(0, 220, 0, 240)
-        EvidResizeBtn.Text = "⊟"
-        EvidList.Padding = UDim.new(0, 4)
+    if mobile then
+        EvidenceFrame.Position = UDim2.fromOffset(viewport.X - width * scale - 8, 8)
+        SpeedFrame.Position = UDim2.fromOffset(viewport.X - speedWidth * scale - 8, 8 + (evidenceCollapsed and 44 or 198))
     else
-        EvidFrame.Size = UDim2.new(0, 165, 0, 32)
-        EvidResizeBtn.Text = "⊞"
-        EvidList.Padding = UDim.new(0, 0)
+        EvidenceFrame.Position = UDim2.fromOffset(viewport.X - width - 20, 20)
+        SpeedFrame.Position = UDim2.fromOffset(viewport.X - speedWidth - 20, 264)
     end
-end)
 
-MakeDraggable(EvidFrame, EvidHeader)
-
--- Evidence Labels
-local EvidenceState = {}
-local function CreateEvidenceLabel(name)
-    local label = Instance.new("TextLabel", EvidFrame)
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Text = "❌ "..name
-    label.TextColor3 = Color3.fromRGB(255, 100, 100)
-    EvidenceState[name] = {Label = label, Found = false}
+    clampOverlay(EvidenceFrame)
+    clampOverlay(SpeedFrame)
 end
 
-CreateEvidenceLabel("EMF Level 5")
-CreateEvidenceLabel("Ghost Orb")
-CreateEvidenceLabel("Ghost Writing")
-CreateEvidenceLabel("Freezing Temp")
-CreateEvidenceLabel("Ultraviolet")
-CreateEvidenceLabel("SLS Ghost")
-CreateEvidenceLabel("Salt Stepped")
+connect(EvidenceCollapse.MouseButton1Click, function()
+    evidenceCollapsed = not evidenceCollapsed
+    EvidenceCollapse.Text = evidenceCollapsed and "+" or "-"
+    layoutOverlay()
+end)
 
-local function UpdateEvidence(name, isFound)
-    if EvidenceState[name] and EvidenceState[name].Found ~= isFound then
-        EvidenceState[name].Found = isFound
-        if isFound then
-            EvidenceState[name].Label.Text = "✅ "..name
-            EvidenceState[name].Label.TextColor3 = Color3.fromRGB(0, 255, 100)
-        else
-            EvidenceState[name].Label.Text = "❌ "..name
-            EvidenceState[name].Label.TextColor3 = Color3.fromRGB(255, 100, 100)
+connect(SpeedCollapse.MouseButton1Click, function()
+    speedCollapsed = not speedCollapsed
+    SpeedCollapse.Text = speedCollapsed and "+" or "-"
+    layoutOverlay()
+end)
+
+connect(workspace:GetPropertyChangedSignal("CurrentCamera"), layoutOverlay)
+if Camera then
+    connect(Camera:GetPropertyChangedSignal("ViewportSize"), layoutOverlay)
+end
+layoutOverlay()
+
+local Windows = NothingLibrary.new({
+    Title = "GHOST HUB",
+    Description = "Optimized Mobile",
+    Keybind = Enum.KeyCode.LeftControl,
+    Logo = "http://www.roblox.com/asset/?id=18898582662"
+})
+
+local TabESP = Windows:NewTab({Title = "ESP", Description = "Main objects", Icon = "rbxassetid://7733960981"})
+local TabEvidence = Windows:NewTab({Title = "Evidence", Description = "Auto detect", Icon = "rbxassetid://7733964719"})
+local TabCurse = Windows:NewTab({Title = "Cursed", Description = "Cursed items", Icon = "rbxassetid://7743869054"})
+local TabUtility = Windows:NewTab({Title = "Utility", Description = "Tools", Icon = "rbxassetid://7733964719"})
+
+local SectionMainESP = TabESP:NewSection({Title = "Object ESP", Position = "Left"})
+local SectionPlayerESP = TabESP:NewSection({Title = "Player ESP", Position = "Right"})
+local SectionEvidence = TabEvidence:NewSection({Title = "Evidence Overlay", Position = "Left"})
+local SectionCurse = TabCurse:NewSection({Title = "Cursed Objects", Position = "Left"})
+local SectionUtility = TabUtility:NewSection({Title = "Environment", Position = "Left"})
+local SectionScripts = TabUtility:NewSection({Title = "Scripts", Position = "Right"})
+
+local function setAllESP(value)
+    Config.GeneratorESP = value
+    Config.ColdestRoomESP = value
+    Config.GhostESP = value
+    Config.SLSGhostESP = value
+    Config.EMFReaderESP = value
+    Config.GhostOrbESP = value
+    Config.PlayerESP = value
+    if not value then
+        destroyESPWithPrefix("player:")
+        destroyESPWithPrefix("generator:")
+        destroyESP("coldest-room")
+        destroyESP("ghost")
+        destroyESP("sls-ghost")
+        destroyESP("emf-reader")
+        destroyESP("ghost-orb")
+    end
+    notify("ESP", value and "เปิด ESP หลักทั้งหมดแล้ว" or "ปิด ESP หลักทั้งหมดแล้ว", 3)
+end
+
+SectionMainESP:NewButton({Title = "Open Main ESP", Callback = function() setAllESP(true) end})
+SectionMainESP:NewButton({Title = "Close Main ESP", Callback = function() setAllESP(false) end})
+SectionMainESP:NewToggle({Title = "Generator ESP", Default = false, Callback = function(value) Config.GeneratorESP = value if not value then destroyESPWithPrefix("generator:") end end})
+SectionMainESP:NewToggle({Title = "Coldest Room ESP", Default = false, Callback = function(value) Config.ColdestRoomESP = value if not value then destroyESP("coldest-room") end end})
+SectionMainESP:NewToggle({Title = "Ghost ESP", Default = false, Callback = function(value) Config.GhostESP = value if not value then destroyESP("ghost") end end})
+SectionMainESP:NewToggle({Title = "SLS Ghost ESP", Default = false, Callback = function(value) Config.SLSGhostESP = value if not value then destroyESP("sls-ghost") end end})
+SectionMainESP:NewToggle({Title = "EMF Reader ESP", Default = false, Callback = function(value) Config.EMFReaderESP = value if not value then destroyESP("emf-reader") end end})
+SectionMainESP:NewToggle({Title = "Ghost Orb ESP", Default = false, Callback = function(value) Config.GhostOrbESP = value if not value then destroyESP("ghost-orb") end end})
+
+local PlayerList = {"All"}
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        table.insert(PlayerList, player.Name)
+    end
+end
+
+SectionPlayerESP:NewToggle({Title = "Player ESP", Default = false, Callback = function(value) Config.PlayerESP = value if not value then destroyESPWithPrefix("player:") end end})
+SectionPlayerESP:NewDropdown({Title = "Select Player", Data = PlayerList, Default = "All", Callback = function(value) Config.SelectedPlayer = value end})
+
+SectionEvidence:NewToggle({Title = "Show Evidence Board", Default = true, Callback = function(value) Config.ShowEvidenceBoard = value EvidenceFrame.Visible = value end})
+SectionEvidence:NewToggle({Title = "Show Speed Tracker", Default = true, Callback = function(value) Config.ShowSpeedTracker = value SpeedFrame.Visible = value end})
+SectionEvidence:NewToggle({Title = "Notifications", Default = true, Callback = function(value) Config.Notifications = value end})
+
+local function setAllCursed(value)
+    Config.SummoningCircleESP = value
+    Config.BooBooDollESP = value
+    Config.MusicBoxESP = value
+    Config.TarotCardsESP = value
+    Config.SpiritBoardESP = value
+    if not value then
+        destroyESPWithPrefix("curse:")
+    end
+    notify("Cursed", value and "เปิด ESP ไอเทมคำสาปทั้งหมดแล้ว" or "ปิด ESP ไอเทมคำสาปทั้งหมดแล้ว", 3)
+end
+
+SectionCurse:NewButton({Title = "Open Cursed ESP", Callback = function() setAllCursed(true) end})
+SectionCurse:NewButton({Title = "Close Cursed ESP", Callback = function() setAllCursed(false) end})
+SectionCurse:NewToggle({Title = "Summoning Circle", Default = false, Callback = function(value) Config.SummoningCircleESP = value if not value then destroyESP("curse:summoning-circle") end end})
+SectionCurse:NewToggle({Title = "BooBoo Doll", Default = false, Callback = function(value) Config.BooBooDollESP = value if not value then destroyESP("curse:booboo-doll") end end})
+SectionCurse:NewToggle({Title = "Music Box", Default = false, Callback = function(value) Config.MusicBoxESP = value if not value then destroyESP("curse:music-box") end end})
+SectionCurse:NewToggle({Title = "Tarot Cards", Default = false, Callback = function(value) Config.TarotCardsESP = value if not value then destroyESP("curse:tarot-cards") end end})
+SectionCurse:NewToggle({Title = "Spirit Board", Default = false, Callback = function(value) Config.SpiritBoardESP = value if not value then destroyESP("curse:spirit-board") end end})
+
+SectionUtility:NewToggle({
+    Title = "Fullbright",
+    Default = false,
+    Callback = function(value)
+        Config.Fullbright = value
+        if not value then
+            Lighting.Brightness = OriginalLighting.Brightness
+            Lighting.ClockTime = OriginalLighting.ClockTime
+            Lighting.FogEnd = OriginalLighting.FogEnd
+            Lighting.GlobalShadows = OriginalLighting.GlobalShadows
+            Lighting.Ambient = OriginalLighting.Ambient
         end
     end
+})
+
+SectionScripts:NewButton({
+    Title = "Infinite Yield",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+        notify("Script", "Injected Infinite Yield", 4)
+    end
+})
+
+local Alerts = {}
+local function alertOnce(key, active, title, description)
+    if active and not Alerts[key] then
+        Alerts[key] = true
+        notify(title, description, 5)
+    elseif not active then
+        Alerts[key] = false
+    end
 end
 
--- ==================== GHOST SPEED TRACKER GUI ====================
-local SpeedFrame = Instance.new("Frame")
-SpeedFrame.Name = "SpeedTracker"
-SpeedFrame.Size = UDim2.new(0, 200, 0, 110)
-SpeedFrame.Position = UDim2.new(1, -240, 0, 280)
-SpeedFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-SpeedFrame.BackgroundTransparency = 0.3
-SpeedFrame.BorderSizePixel = 0
-SpeedFrame.Active = true
-SpeedFrame.Parent = ScreenGui
-Instance.new("UICorner", SpeedFrame).CornerRadius = UDim.new(0, 8)
-
-local SpeedPad = Instance.new("UIPadding", SpeedFrame)
-SpeedPad.PaddingLeft = UDim.new(0, 8); SpeedPad.PaddingRight = UDim.new(0, 8)
-SpeedPad.PaddingTop = UDim.new(0, 5); SpeedPad.PaddingBottom = UDim.new(0, 5)
-
-local SpeedList = Instance.new("UIListLayout", SpeedFrame)
-SpeedList.Padding = UDim.new(0, 5)
-
--- Speed Header (draggable)
-local SpeedHeader = Instance.new("Frame", SpeedFrame)
-SpeedHeader.Size = UDim2.new(1, 0, 0, 24)
-SpeedHeader.BackgroundTransparency = 1
-
-local SpeedTitleLabel = Instance.new("TextLabel", SpeedHeader)
-SpeedTitleLabel.Size = UDim2.new(1, -28, 1, 0)
-SpeedTitleLabel.BackgroundTransparency = 1
-SpeedTitleLabel.Text = "👻 GHOST SPEED"
-SpeedTitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-SpeedTitleLabel.Font = Enum.Font.GothamBold
-SpeedTitleLabel.TextSize = 13
-SpeedTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-
--- Toggle visibility button
-local SpeedToggleBtn = Instance.new("TextButton", SpeedHeader)
-SpeedToggleBtn.Size = UDim2.new(0, 24, 0, 24)
-SpeedToggleBtn.Position = UDim2.new(1, -24, 0, 0)
-SpeedToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-SpeedToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SpeedToggleBtn.Font = Enum.Font.GothamBold
-SpeedToggleBtn.TextSize = 11
-SpeedToggleBtn.Text = "−"
-SpeedToggleBtn.BorderSizePixel = 0
-Instance.new("UICorner", SpeedToggleBtn).CornerRadius = UDim.new(0, 4)
-
-MakeDraggable(SpeedFrame, SpeedHeader)
-
--- Speed display labels
-local SpeedValueLabel = Instance.new("TextLabel", SpeedFrame)
-SpeedValueLabel.Size = UDim2.new(1, 0, 0, 24)
-SpeedValueLabel.BackgroundTransparency = 1
-SpeedValueLabel.Text = "ความเร็ว: --"
-SpeedValueLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-SpeedValueLabel.Font = Enum.Font.GothamBold
-SpeedValueLabel.TextSize = 16
-SpeedValueLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local SpeedStatusLabel = Instance.new("TextLabel", SpeedFrame)
-SpeedStatusLabel.Size = UDim2.new(1, 0, 0, 18)
-SpeedStatusLabel.BackgroundTransparency = 1
-SpeedStatusLabel.Text = "สถานะ: รอผีปรากฏ"
-SpeedStatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-SpeedStatusLabel.Font = Enum.Font.Gotham
-SpeedStatusLabel.TextSize = 13
-SpeedStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local SpeedAvgLabel = Instance.new("TextLabel", SpeedFrame)
-SpeedAvgLabel.Size = UDim2.new(1, 0, 0, 18)
-SpeedAvgLabel.BackgroundTransparency = 1
-SpeedAvgLabel.Text = "เฉลี่ย: -- | สูงสุด: --"
-SpeedAvgLabel.TextColor3 = Color3.fromRGB(130, 130, 130)
-SpeedAvgLabel.Font = Enum.Font.Gotham
-SpeedAvgLabel.TextSize = 12
-SpeedAvgLabel.TextXAlignment = Enum.TextXAlignment.Left
-
--- Toggle collapse
-local speedCollapsed = false
-SpeedToggleBtn.MouseButton1Click:Connect(function()
-    speedCollapsed = not speedCollapsed
-    if speedCollapsed then
-        SpeedFrame.Size = UDim2.new(0, 200, 0, 32)
-        SpeedToggleBtn.Text = "+"
-        SpeedList.Padding = UDim.new(0, 0)
-    else
-        SpeedFrame.Size = UDim2.new(0, 200, 0, 110)
-        SpeedToggleBtn.Text = "−"
-        SpeedList.Padding = UDim.new(0, 5)
+local function findItemSafe(container, names)
+    if not container then return nil end
+    for _, name in ipairs(names) do
+        local direct = container:FindFirstChild(name)
+        if direct then return direct end
     end
-end)
 
--- ==================== GHOST SPEED LOGIC ====================
-local ghostPrevPos = nil
-local ghostPrevTime = nil
+    for _, name in ipairs(names) do
+        local target = string.lower(name):gsub("%s+", "")
+        for _, object in ipairs(container:GetDescendants()) do
+            if string.lower(object.Name):gsub("%s+", "") == target then
+                return object
+            end
+        end
+    end
+
+    return nil
+end
+
+local function findItemInContainers(names, containers)
+    for _, container in ipairs(containers) do
+        local found = findItemSafe(container, names)
+        if found and found:IsDescendantOf(workspace) then
+            return found
+        end
+    end
+    return nil
+end
+
+local function getLocalRoot()
+    local character = LocalPlayer.Character
+    return character and character:FindFirstChild("HumanoidRootPart") or nil
+end
+
+local function updateFullbright()
+    if not Config.Fullbright then return end
+    Lighting.Brightness = 2
+    Lighting.ClockTime = 14
+    Lighting.FogEnd = 100000
+    Lighting.GlobalShadows = false
+    Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+end
+
+local ghostPrevPos
+local ghostPrevTime
 local ghostSpeedHistory = {}
 local MAX_HISTORY = 10
 
-local function GetSpeedCategory(speed)
-    -- ความเร็วปกติ Phasmophobia-style (studs/s)
+local function getSpeedCategory(speed)
     if speed < 1 then
-        return "🐌 ช้ามาก (ผีไม่วิ่ง)", Color3.fromRGB(100, 200, 255)
+        return "Status: very slow", Color3.fromRGB(120, 200, 255)
     elseif speed < 3.5 then
-        return "🚶 ปกติ (Normal)", Color3.fromRGB(100, 255, 100)
+        return "Status: normal", Color3.fromRGB(100, 255, 130)
     elseif speed < 6 then
-        return "🏃 เร็ว (Fast)", Color3.fromRGB(255, 200, 0)
+        return "Status: fast", Color3.fromRGB(255, 210, 80)
     elseif speed < 9 then
-        return "⚡ เร็วมาก (Very Fast)", Color3.fromRGB(255, 100, 0)
-    else
-        return "💀 วิ่งหาตัว! (HUNTING)", Color3.fromRGB(255, 0, 0)
+        return "Status: very fast", Color3.fromRGB(255, 135, 70)
     end
+    return "Status: hunting speed", Color3.fromRGB(255, 70, 70)
 end
 
--- ==================== PLAYER LIST ====================
-local PlayerList = {"All"}
-for _, p in pairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then table.insert(PlayerList, p.Name) end
-end
+local function updateGhostSpeed(ghost)
+    if not Config.ShowSpeedTracker then return end
 
--- ==================== UI ELEMENTS ====================
-SectionMasterESP:NewButton({Title="เปิด ESP ทั้งหมด", Callback=function()
-    Config.GeneratorESP=true; Config.ColdestRoomESP=true; Config.GhostESP=true
-    Config.SLSGhostESP=true; Config.EMFReaderESP=true; Config.GhostOrbESP=true; Config.PlayerESP=true
-    Notification.new({Title="ESP", Description="เปิดทั้งหมดแล้ว", Duration=3})
-end})
-SectionMasterESP:NewButton({Title="ปิด ESP ทั้งหมด", Callback=function()
-    Config.GeneratorESP=false; Config.ColdestRoomESP=false; Config.GhostESP=false
-    Config.SLSGhostESP=false; Config.EMFReaderESP=false; Config.GhostOrbESP=false; Config.PlayerESP=false
-    Notification.new({Title="ESP", Description="ปิดทั้งหมดแล้ว", Duration=3})
-end})
+    local ghostPos = getPosition(ghost)
+    local now = os.clock()
+    if ghost and ghostPos and ghostPrevPos and ghostPrevTime then
+        local dt = now - ghostPrevTime
+        if dt > 0.05 then
+            local speed = (ghostPos - ghostPrevPos).Magnitude / dt
+            if speed < 150 then
+                table.insert(ghostSpeedHistory, speed)
+                if #ghostSpeedHistory > MAX_HISTORY then
+                    table.remove(ghostSpeedHistory, 1)
+                end
 
-SectionMainESP:NewToggle({Title="EMF Reader ESP",   Default=false, Callback=function(tr) Config.EMFReaderESP=tr   end})
-SectionMainESP:NewToggle({Title="Generator ESP",    Default=false, Callback=function(tr) Config.GeneratorESP=tr   end})
-SectionMainESP:NewToggle({Title="Coldest Room ESP", Default=false, Callback=function(tr) Config.ColdestRoomESP=tr end})
-SectionMainESP:NewToggle({Title="Ghost Orb ESP",    Default=false, Callback=function(tr) Config.GhostOrbESP=tr    end})
-SectionMainESP:NewToggle({Title="Ghost ESP",        Default=false, Callback=function(tr) Config.GhostESP=tr       end})
-SectionMainESP:NewToggle({Title="SLS Ghost ESP",    Default=false, Callback=function(tr) Config.SLSGhostESP=tr    end})
+                local total = 0
+                local maxSpeed = 0
+                for _, value in ipairs(ghostSpeedHistory) do
+                    total = total + value
+                    if value > maxSpeed then
+                        maxSpeed = value
+                    end
+                end
 
-SectionPlayerESP:NewToggle({Title="Player ESP", Default=false, Callback=function(tr) Config.PlayerESP=tr end})
-SectionPlayerESP:NewDropdown({Title="Select Player", Data=PlayerList, Default="All", Callback=function(a) Config.SelectedPlayer=a end})
-
-SectionAutoDetect:NewToggle({Title="Show Evidence Board", Default=true, Callback=function(tr)
-    Config.ShowEvidenceBoard=tr; EvidFrame.Visible=tr
-end})
-SectionAutoDetect:NewToggle({Title="Show Speed Tracker",  Default=true, Callback=function(tr)
-    Config.ShowSpeedTracker=tr; SpeedFrame.Visible=tr
-end})
-
-SectionMasterCurse:NewButton({Title="เปิด ESP ไอเทมคำสาปทั้งหมด", Callback=function()
-    Config.SummoningCircleESP=true; Config.BooBooDollESP=true; Config.MusicBoxESP=true
-    Config.TarotCardsESP=true; Config.SpiritBoardESP=true
-    Notification.new({Title="Cursed", Description="เปิดทั้งหมดแล้ว", Duration=3})
-end})
-SectionMasterCurse:NewButton({Title="ปิด ESP ไอเทมคำสาปทั้งหมด", Callback=function()
-    Config.SummoningCircleESP=false; Config.BooBooDollESP=false; Config.MusicBoxESP=false
-    Config.TarotCardsESP=false; Config.SpiritBoardESP=false
-    Notification.new({Title="Cursed", Description="ปิดทั้งหมดแล้ว", Duration=3})
-end})
-
-SectionCurse:NewToggle({Title="Summoning Circle", Default=false, Callback=function(tr) Config.SummoningCircleESP=tr end})
-SectionCurse:NewToggle({Title="BooBoo Doll",      Default=false, Callback=function(tr) Config.BooBooDollESP=tr     end})
-SectionCurse:NewToggle({Title="Music Box",        Default=false, Callback=function(tr) Config.MusicBoxESP=tr       end})
-SectionCurse:NewToggle({Title="Tarot Cards",      Default=false, Callback=function(tr) Config.TarotCardsESP=tr     end})
-SectionCurse:NewToggle({Title="Spirit Board",     Default=false, Callback=function(tr) Config.SpiritBoardESP=tr    end})
-
-SectionUtil:NewToggle({
-    Title="Fullbright (ไฟสว่าง)", Default=false,
-    Callback=function(tr)
-        Config.Fullbright=tr
-        if not tr then
-            Lighting.Brightness=OriginalLighting.Brightness; Lighting.ClockTime=OriginalLighting.ClockTime
-            Lighting.FogEnd=OriginalLighting.FogEnd; Lighting.GlobalShadows=OriginalLighting.GlobalShadows
-            Lighting.Ambient=OriginalLighting.Ambient
+                local average = total / #ghostSpeedHistory
+                local status, color = getSpeedCategory(speed)
+                SpeedValueLabel.Text = string.format("Speed: %.2f u/s", speed)
+                SpeedValueLabel.TextColor3 = color
+                SpeedStatusLabel.Text = status
+                SpeedStatusLabel.TextColor3 = color
+                SpeedAvgLabel.Text = string.format("Avg: %.2f | Max: %.2f", average, maxSpeed)
+            end
         end
+    elseif not ghost then
+        ghostSpeedHistory = {}
+        SpeedValueLabel.Text = "Speed: --"
+        SpeedValueLabel.TextColor3 = Colors.Muted
+        SpeedStatusLabel.Text = "Status: waiting for ghost"
+        SpeedStatusLabel.TextColor3 = Colors.Muted
+        SpeedAvgLabel.Text = "Avg: -- | Max: --"
     end
-})
-SectionScripts:NewButton({
-    Title="Infinite Yield",
-    Callback=function()
-        loadstring(game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'))()
-        Notification.new({Title="Script", Description="Injected Infinite Yield", Duration=5})
+
+    ghostPrevPos = ghostPos
+    ghostPrevTime = ghostPos and now or nil
+end
+
+local function updatePlayers(localPosition)
+    if not Config.PlayerESP then
+        destroyESPWithPrefix("player:")
+        return
     end
-})
 
--- ==================== ESP SYSTEM ====================
-local function GetPosition(obj)
-    if not obj then return nil end
-    if obj:IsA("BasePart") then return obj.Position end
-    if obj:IsA("Model") then
-        if obj.PrimaryPart then return obj.PrimaryPart.Position end
-        local part = obj:FindFirstChildWhichIsA("BasePart")
-        if part then return part.Position end
-        local ok, pos = pcall(function() return obj:GetPivot().Position end)
-        if ok then return pos end
-    end
-    return nil
-end
-
-local function AddESP(parent, name, color)
-    if not parent then return end
-    if parent:FindFirstChild("NOTHING_ESP_"..name) then return end
-    local pos = GetPosition(parent)
-    if not pos then return end
-    local folder = Instance.new("Folder")
-    folder.Name = "NOTHING_ESP_"..name
-    folder.Parent = parent
-    local highlight = Instance.new("Highlight")
-    highlight.FillColor = color
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 0
-    highlight.Adornee = parent:IsA("Model") and parent or (parent:IsA("BasePart") and parent or nil)
-    highlight.Parent = folder
-    local billboard = Instance.new("BillboardGui")
-    billboard.Size = UDim2.new(0, 200, 0, 30)
-    billboard.AlwaysOnTop = true
-    billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.Adornee = parent:IsA("BasePart") and parent or (parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart"))
-    if not billboard.Adornee then billboard.ExtentsOffsetWorldSpace = pos end
-    billboard.Parent = folder
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = color
-    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.TextStrokeTransparency = 0
-    label.Text = "..."
-    label.Font = Enum.Font.GothamBold
-    label.TextScaled = true
-    label.Parent = billboard
-end
-
-local function UpdateESPText(parent, name, newText)
-    if not parent then return end
-    local folder = parent:FindFirstChild("NOTHING_ESP_"..name)
-    if folder then
-        local billboard = folder:FindFirstChildWhichIsA("BillboardGui")
-        if billboard then
-            local label = billboard:FindFirstChildWhichIsA("TextLabel")
-            if label and label.Text ~= newText then label.Text = newText end
-            if not billboard.Adornee then
-                local pos = GetPosition(parent)
-                if pos then billboard.ExtentsOffsetWorldSpace = pos end
-            end
-        end
-    end
-end
-
-local function RemoveESP(parent, name)
-    if not parent then return end
-    local esp = parent:FindFirstChild("NOTHING_ESP_"..name)
-    if esp then esp:Destroy() end
-end
-
-local function GetRoomFromPosition(pos)
-    if not pos then return "Unknown" end
-    local closestDist, closestRoom = math.huge, "Unknown"
-    pcall(function()
-        for _, zone in pairs(workspace.Map.Zones:GetChildren()) do
-            local zonePos = GetPosition(zone)
-            if zonePos then
-                local dist = (pos - zonePos).Magnitude
-                if dist < closestDist then closestDist=dist; closestRoom=zone.Name end
-            end
-        end
-    end)
-    return closestRoom
-end
-
--- ==================== แก้บัค Music Box: หาแบบ Safe ====================
--- ค้นหา object ที่ชื่อตรงหรือใกล้เคียง ใน container ที่กำหนด
-local function FindItemSafe(container, names)
-    if not container then return nil end
-    for _, name in ipairs(names) do
-        local found = container:FindFirstChild(name)
-        if found then return found end
-    end
-    -- fallback: ค้น descendant แบบ case-insensitive ชื่อใกล้เคียง
-    for _, name in ipairs(names) do
-        local lowerName = name:lower():gsub("%s","")
-        for _, child in ipairs(container:GetDescendants()) do
-            local childLower = child.Name:lower():gsub("%s","")
-            if childLower == lowerName then return child end
-        end
-    end
-    return nil
-end
-
--- ==================== MAIN LOOP ====================
-task.spawn(function()
-    local ghostAlerted, slsAlerted, orbAlerted = false, false, false
-    local writingAlerted, emf5Alerted, freezeAlerted = false, false, false
-    local uvAlerted, saltAlerted = false, false
-
-    -- ติดตาม object ที่ ESP อยู่ เพื่อ cleanup เมื่อหายไป
-    local trackedCurseObjects = {}
-
-    while true do
-        task.wait(0.3)
-
-        local lpChar = LocalPlayer.Character
-        local lpRoot = lpChar and lpChar:FindFirstChild("HumanoidRootPart")
-        local myPos  = lpRoot and lpRoot.Position or Vector3.new(0,0,0)
-
-        -- Fullbright
-        if Config.Fullbright then
-            if Lighting.Brightness    ~= 2                             then Lighting.Brightness    = 2                             end
-            if Lighting.ClockTime     ~= 14                            then Lighting.ClockTime     = 14                            end
-            if Lighting.FogEnd        ~= 100000                        then Lighting.FogEnd        = 100000                        end
-            if Lighting.GlobalShadows ~= false                         then Lighting.GlobalShadows = false                         end
-            if Lighting.Ambient       ~= Color3.fromRGB(178,178,178)   then Lighting.Ambient       = Color3.fromRGB(178,178,178)   end
-        end
-
-        -- ==================== GHOST SPEED TRACKER ====================
-        local ghost = workspace:FindFirstChild("Ghost")
-        if ghost then
-            local ghostPos = GetPosition(ghost)
-            local now = tick()
-            if ghostPos and ghostPrevPos and ghostPrevTime then
-                local dt = now - ghostPrevTime
-                if dt > 0.05 then -- กรอง noise
-                    local speed = (ghostPos - ghostPrevPos).Magnitude / dt
-                    -- เก็บ history
-                    table.insert(ghostSpeedHistory, speed)
-                    if #ghostSpeedHistory > MAX_HISTORY then
-                        table.remove(ghostSpeedHistory, 1)
-                    end
-                    -- คำนวณค่าเฉลี่ยและสูงสุด
-                    local total, maxSpd = 0, 0
-                    for _, s in ipairs(ghostSpeedHistory) do
-                        total = total + s
-                        if s > maxSpd then maxSpd = s end
-                    end
-                    local avg = total / #ghostSpeedHistory
-                    local category, catColor = GetSpeedCategory(speed)
-                    -- อัปเดต GUI
-                    SpeedValueLabel.Text = string.format("ความเร็ว: %.2f u/s", speed)
-                    SpeedValueLabel.TextColor3 = catColor
-                    SpeedStatusLabel.Text = category
-                    SpeedStatusLabel.TextColor3 = catColor
-                    SpeedAvgLabel.Text = string.format("เฉลี่ย: %.2f | สูงสุด: %.2f", avg, maxSpd)
-                end
-            end
-            if ghostPos then
-                ghostPrevPos  = ghostPos
-                ghostPrevTime = now
-            end
-        else
-            -- ผีหายไป: reset
-            ghostPrevPos   = nil
-            ghostPrevTime  = nil
-            ghostSpeedHistory = {}
-            SpeedValueLabel.Text    = "ความเร็ว: --"
-            SpeedValueLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-            SpeedStatusLabel.Text   = "สถานะ: รอผีปรากฏ"
-            SpeedStatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-            SpeedAvgLabel.Text      = "เฉลี่ย: -- | สูงสุด: --"
-        end
-
-        -- Player ESP
-        if Config.PlayerESP then
-            for _, player in pairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local char = player.Character
-                    local shouldESP = (Config.SelectedPlayer == "All" or Config.SelectedPlayer == player.Name)
-                    if shouldESP then
-                        AddESP(char, "Player", Color3.fromRGB(0, 255, 0))
-                        local pos  = GetPosition(char)
-                        local dist = lpRoot and pos and math.floor((myPos-pos).Magnitude) or "?"
-                        UpdateESPText(char, "Player", "👤 ["..dist.."m] "..player.Name)
-                    else RemoveESP(char, "Player") end
-                end
-            end
-        else
-            for _, player in pairs(Players:GetPlayers()) do
-                if player.Character then RemoveESP(player.Character, "Player") end
-            end
-        end
-
-        -- EMF Reader ESP
-        local isEMF5Present = false
-        local emfSuccess, emfItem = pcall(function() return workspace.Map.Items:FindFirstChild("EMF Reader") end)
-        if emfSuccess and emfItem then
-            local currentLevel = 0
-            for i = 5, 1, -1 do
-                local levelFolder = emfItem:FindFirstChild(tostring(i))
-                if levelFolder then
-                    for _, desc in pairs(levelFolder:GetDescendants()) do
-                        if desc:IsA("BasePart") and desc.Material == Enum.Material.Neon then
-                            currentLevel = i
-                            if i == 5 then isEMF5Present = true end
-                            break
-                        end
-                    end
-                    if currentLevel > 0 then break end
-                end
-            end
-            if Config.EMFReaderESP then
-                if currentLevel > 0 then
-                    local emfColor = currentLevel==5 and Color3.fromRGB(255,0,0) or (currentLevel>=3 and Color3.fromRGB(255,255,0) or Color3.fromRGB(0,255,0))
-                    AddESP(emfItem, "EMF", emfColor)
-                    local pos  = GetPosition(emfItem)
-                    local dist = lpRoot and pos and math.floor((myPos-pos).Magnitude) or "?"
-                    UpdateESPText(emfItem, "EMF", "📡 ["..dist.."m] EMF Lv."..currentLevel)
-                else RemoveESP(emfItem, "EMF") end
-            else RemoveESP(emfItem, "EMF") end
-        end
-        UpdateEvidence("EMF Level 5", isEMF5Present)
-        if isEMF5Present and not emf5Alerted then
-            Notification.new({Title="📡 เจอหลักฐาน!", Description="ตรวจพบ EMF Level 5", Duration=5}); emf5Alerted=true
-        elseif not isEMF5Present then emf5Alerted=false end
-
-        -- Generator ESP
-        local genSuccess, generators = pcall(function() return workspace.Map.Generators:GetChildren() end)
-        if Config.GeneratorESP and genSuccess then
-            for _, gen in pairs(generators) do
-                if gen:IsA("Model") or gen:IsA("BasePart") then
-                    AddESP(gen, "Generator", Color3.fromRGB(255, 255, 0))
-                    local pos  = GetPosition(gen)
-                    local dist = lpRoot and pos and math.floor((myPos-pos).Magnitude) or "?"
-                    UpdateESPText(gen, "Generator", "⚡ ["..dist.."m] Generator")
-                end
-            end
-        elseif not Config.GeneratorESP and genSuccess then
-            for _, gen in pairs(generators) do RemoveESP(gen, "Generator") end
-        end
-
-        -- Coldest Room ESP
-        local zoneSuccess, zones = pcall(function() return workspace.Map.Zones:GetChildren() end)
-        local isFreezing = false
-        if zoneSuccess then
-            local coldestTemp, coldestRoom = math.huge, nil
-            for _, zone in pairs(zones) do
-                for _, child in pairs(zone:GetChildren()) do
-                    if child.Name:find("Temperature") and child:IsA("NumberValue") then
-                        if child.Value < 0 then isFreezing = true end
-                        if child.Value < coldestTemp then coldestTemp=child.Value; coldestRoom=zone end
-                    end
-                end
-            end
-            if Config.ColdestRoomESP and coldestRoom then
-                local freezeColor = coldestTemp < 0 and Color3.fromRGB(0,255,255) or Color3.fromRGB(0,200,255)
-                AddESP(coldestRoom, "ColdRoom", freezeColor)
-                local pos  = GetPosition(coldestRoom)
-                local dist = lpRoot and pos and math.floor((myPos-pos).Magnitude) or "?"
-                UpdateESPText(coldestRoom, "ColdRoom", "❄️ ["..dist.."m] "..coldestRoom.Name.." ("..string.format("%.1f",coldestTemp).."°)")
-            elseif not Config.ColdestRoomESP then
-                for _, zone in pairs(zones) do RemoveESP(zone, "ColdRoom") end
-            end
-        end
-        UpdateEvidence("Freezing Temp", isFreezing)
-        if isFreezing and not freezeAlerted then
-            Notification.new({Title="🥶 เจอหลักฐาน!", Description="ตรวจพบ Freezing Temperature", Duration=5}); freezeAlerted=true
-        elseif not isFreezing then freezeAlerted=false end
-
-        -- Ghost ESP
-        if Config.GhostESP and ghost then
-            AddESP(ghost, "Ghost", Color3.fromRGB(255, 50, 50))
-            local pos  = GetPosition(ghost)
-            local dist = lpRoot and pos and math.floor((myPos-pos).Magnitude) or "?"
-            UpdateESPText(ghost, "Ghost", "👻 ["..dist.."m] GHOST!")
-            if not ghostAlerted then
-                Notification.new({Title="👻 ผีเกิดแล้ว!", Description="ระวัง! Ghost ปรากฏตัวแล้ว", Duration=5}); ghostAlerted=true
-            end
-        else
-            if ghost then RemoveESP(ghost, "Ghost") end
-            if not ghost then ghostAlerted=false end
-        end
-
-        -- SLS Ghost ESP
-        local slsGhost     = workspace:FindFirstChild("SLS_GHOST")
-        local isSLSVisible = slsGhost ~= nil
-        if Config.SLSGhostESP and slsGhost then
-            AddESP(slsGhost, "SLS", Color3.fromRGB(255, 150, 0))
-            local pos  = GetPosition(slsGhost)
-            local dist = lpRoot and pos and math.floor((myPos-pos).Magnitude) or "?"
-            UpdateESPText(slsGhost, "SLS", "📷 ["..dist.."m] SLS GHOST!")
-            if not slsAlerted then
-                Notification.new({Title="📷 เจอผีผ่านกล้อง!", Description="SLS_GHOST ปรากฏตัวแล้ว", Duration=5}); slsAlerted=true
-            end
-        else
-            if slsGhost then RemoveESP(slsGhost, "SLS") end
-            if not slsGhost then slsAlerted=false end
-        end
-        UpdateEvidence("SLS Ghost", isSLSVisible)
-
-        -- Ghost Orb ESP
-        local orbFound = false
-        pcall(function()
-            local orbPart = workspace.Map.Orbs:FindFirstChild("OrbPart")
-            if orbPart then
-                orbFound = true
-                local orbPos = GetPosition(orbPart)
-                if Config.GhostOrbESP then
-                    AddESP(orbPart, "Orb", Color3.fromRGB(200, 0, 255))
-                    local dist     = lpRoot and orbPos and math.floor((myPos-orbPos).Magnitude) or "?"
-                    local roomName = GetRoomFromPosition(orbPos)
-                    UpdateESPText(orbPart, "Orb", "🔮 ["..dist.."m] Orb ("..roomName..")")
-                else RemoveESP(orbPart, "Orb") end
-            end
-        end)
-        UpdateEvidence("Ghost Orb", orbFound)
-        if orbFound and not orbAlerted then
-            Notification.new({Title="🔮 เจอหลักฐาน!", Description="ตรวจพบ Ghost Orb", Duration=5}); orbAlerted=true
-        elseif not orbFound then orbAlerted=false end
-
-        -- ==================== UV EVIDENCE (แก้บัคแล้ว) ====================
-        local uvFound = false
-        pcall(function()
-            local prints = workspace.Map:FindFirstChild("Prints")
-            if not prints then return end
-            -- รอยเท้า
-            if prints:FindFirstChild("UV_BootL") or prints:FindFirstChild("UV_BootR") then
-                uvFound = true
-            end
-            -- รอยนิ้วมือ: UV_Hand อาจเป็น Folder มี children อยู่
-            if not uvFound then
-                local handFolder = prints:FindFirstChild("UV_Hand")
-                if handFolder then
-                    if handFolder:IsA("Folder") then
-                        if #handFolder:GetChildren() > 0 then uvFound = true end
-                    else
-                        uvFound = true
-                    end
-                end
-                -- หรืออาจเป็น descendant ใน prints ที่ชื่อขึ้นต้น UV_Hand
-                if not uvFound then
-                    for _, desc in ipairs(prints:GetDescendants()) do
-                        if desc.Name:find("UV_Hand") then uvFound = true; break end
-                    end
-                end
-            end
-        end)
-        UpdateEvidence("Ultraviolet", uvFound)
-        if uvFound and not uvAlerted then
-            Notification.new({Title="💡 เจอหลักฐาน!", Description="ตรวจพบ Ultraviolet (UV)", Duration=5}); uvAlerted=true
-        elseif not uvFound then uvAlerted=false end
-
-        -- Salt Stepped
-        local saltStepped = false
-        pcall(function() if workspace:FindFirstChild("SaltStepped") then saltStepped=true end end)
-        UpdateEvidence("Salt Stepped", saltStepped)
-        if saltStepped and not saltAlerted then
-            Notification.new({Title="🧂 ผีเหยียบเกลือ!", Description="ผีเดินผ่านเกลือแล้ว", Duration=5}); saltAlerted=true
-        elseif not saltStepped then saltAlerted=false end
-
-        -- Ghost Writing
-        local writingFound = false
-        pcall(function()
-            local book = workspace.Map.Items["Ghost Writing Book"]
-            if book then
-                local handle = book:FindFirstChild("Handle")
-                if handle then
-                    for _, child in pairs(handle:GetChildren()) do
-                        if string.match(child.Name, "^Writing%d+$") then writingFound=true; break end
-                    end
-                end
-            end
-        end)
-        UpdateEvidence("Ghost Writing", writingFound)
-        if writingFound and not writingAlerted then
-            Notification.new({Title="📝 เจอหลักฐาน!", Description="ตรวจพบ Ghost Writing", Duration=5}); writingAlerted=true
-        elseif not writingFound then writingAlerted=false end
-
-        -- ==================== CURSED ITEMS ESP (แก้บัค Music Box) ====================
-        local curseDefs = {
-            {Key="SummoningCircleESP", Name="Circle",     Names={"SummoningCircle","Summoning Circle"}, Icon="🔮", Color=Color3.fromRGB(170,0,255)},
-            {Key="BooBooDollESP",      Name="BooBoo",     Names={"BooBooDoll","BooBoo Doll"},           Icon="🧸", Color=Color3.fromRGB(255,0,255)},
-            -- แก้บัค: ค้นหา Music Box ทั้งสองรูปแบบ พร้อม validate ว่า object ยังอยู่ใน workspace จริงๆ
-            {Key="MusicBoxESP",        Name="MusicBox",   Names={"Music Box"," Music Box","MusicBox"},  Icon="🎵", Color=Color3.fromRGB(255,200,0), containers={"Items","CursedSpawns"}},
-            {Key="TarotCardsESP",      Name="Tarot",      Names={"Tarot Cards","TarotCards"},           Icon="🃏", Color=Color3.fromRGB(255,100,150)},
-            {Key="SpiritBoardESP",     Name="SpiritBoard",Names={"Spirit Board","SpiritBoard"},         Icon="🟫", Color=Color3.fromRGB(200,200,200)},
-        }
-
-        for _, item in ipairs(curseDefs) do
-            local obj = nil
-
-            -- หา object
-            pcall(function()
-                if item.containers then
-                    -- ค้นใน containers ที่ระบุ
-                    for _, containerName in ipairs(item.containers) do
-                        local container = workspace.Map:FindFirstChild(containerName)
-                        if container then
-                            obj = FindItemSafe(container, item.Names)
-                            if obj then break end
-                        end
-                    end
-                else
-                    -- ค้นแบบ recursive ใน workspace.Map
-                    for _, name in ipairs(item.Names) do
-                        obj = workspace.Map:FindFirstChild(name, true)
-                        if obj then break end
-                    end
-                end
-            end)
-
-            -- ==================== แก้บัคหลัก: ตรวจสอบว่า object ยังมีอยู่จริง ====================
-            -- ถ้า obj เป็น nil หรือ Parent เป็น nil = object ถูกลบแล้ว ให้เอา ESP ออก
-            local objValid = obj and obj.Parent ~= nil and obj:IsDescendantOf(workspace)
-
-            -- ดึง tracked object เก่า (ถ้ามี) เพื่อ cleanup เมื่อ obj เปลี่ยน
-            local prevObj = trackedCurseObjects[item.Name]
-            if prevObj and prevObj ~= obj then
-                -- object เปลี่ยนหรือหายไป ลบ ESP เก่า
-                pcall(function() RemoveESP(prevObj, item.Name) end)
-                trackedCurseObjects[item.Name] = nil
-            end
-
-            if Config[item.Key] and objValid then
-                AddESP(obj, item.Name, item.Color)
-                local pos  = GetPosition(obj)
-                local dist = lpRoot and pos and math.floor((myPos-pos).Magnitude) or "?"
-                UpdateESPText(obj, item.Name, item.Icon.." ["..dist.."m] "..item.Name)
-                trackedCurseObjects[item.Name] = obj
+    local alive = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local allowed = Config.SelectedPlayer == "All" or Config.SelectedPlayer == player.Name
+            local id = "player:" .. player.UserId
+            alive[id] = true
+            if allowed then
+                local distance = getDistanceText(localPosition, player.Character)
+                setESP(id, player.Character, "[" .. distance .. "m] " .. player.Name, Colors.Player)
             else
-                -- ปิด config หรือ object ไม่มีแล้ว: ลบ ESP
-                if objValid then RemoveESP(obj, item.Name) end
-                trackedCurseObjects[item.Name] = nil
+                destroyESP(id)
             end
         end
+    end
 
+    for id in pairs(ESP) do
+        if string.sub(id, 1, 7) == "player:" and not alive[id] then
+            destroyESP(id)
+        end
+    end
+end
+
+local function updateGhost(localPosition)
+    local ghost = workspace:FindFirstChild("Ghost")
+    updateGhostSpeed(ghost)
+
+    if Config.GhostESP and ghost then
+        setESP("ghost", ghost, "[" .. getDistanceText(localPosition, ghost) .. "m] GHOST", Colors.Ghost)
+    else
+        destroyESP("ghost")
+    end
+
+    alertOnce("ghost", ghost ~= nil, "ผีเกิดแล้ว", "พบ workspace.Ghost")
+    return ghost
+end
+
+local function updateSLS(localPosition)
+    local slsGhost = workspace:FindFirstChild("SLS_GHOST")
+    if Config.SLSGhostESP and slsGhost then
+        setESP("sls-ghost", slsGhost, "[" .. getDistanceText(localPosition, slsGhost) .. "m] SLS_GHOST", Colors.SLS)
+    else
+        destroyESP("sls-ghost")
+    end
+
+    updateEvidence("SLS Ghost", slsGhost ~= nil)
+    alertOnce("sls", slsGhost ~= nil, "เจอ SLS_GHOST", "พบ workspace.SLS_GHOST")
+end
+
+local function updateGenerators(localPosition)
+    local mapObject = map()
+    local generators = child(mapObject, "Generators")
+    if not Config.GeneratorESP or not generators then
+        destroyESPWithPrefix("generator:")
+        return
+    end
+
+    local alive = {}
+    local generatorMesh = generators:FindFirstChild("GeneratorMesh")
+    local list = generatorMesh and {generatorMesh} or generators:GetChildren()
+
+    for index, generator in ipairs(list) do
+        if generator:IsA("Model") or generator:IsA("BasePart") then
+            local id = "generator:" .. index .. ":" .. generator.Name
+            alive[id] = true
+            setESP(id, generator, "[" .. getDistanceText(localPosition, generator) .. "m] Generator", Colors.Generator)
+        end
+    end
+
+    for id in pairs(ESP) do
+        if string.sub(id, 1, 10) == "generator:" and not alive[id] then
+            destroyESP(id)
+        end
+    end
+end
+
+local function getTemperature(zone)
+    for _, object in ipairs(zone:GetDescendants()) do
+        if (object:IsA("NumberValue") or object:IsA("IntValue")) and string.find(string.lower(object.Name), "temperature") then
+            return object.Value
+        end
+    end
+    return nil
+end
+
+local function updateColdestRoom(localPosition)
+    local zones = child(map(), "Zones")
+    if not zones then
+        destroyESP("coldest-room")
+        updateEvidence("Freezing Temp", false)
+        return
+    end
+
+    local coldestRoom
+    local coldestTemp = math.huge
+    local freezing = false
+
+    for _, zone in ipairs(zones:GetChildren()) do
+        local temperature = getTemperature(zone)
+        if temperature then
+            if temperature < 0 then
+                freezing = true
+            end
+            if temperature < coldestTemp then
+                coldestTemp = temperature
+                coldestRoom = zone
+            end
+        end
+    end
+
+    updateEvidence("Freezing Temp", freezing)
+    alertOnce("freezing", freezing, "เจอหลักฐาน", "ตรวจพบ Freezing Temperature")
+
+    if Config.ColdestRoomESP and coldestRoom then
+        local color = coldestTemp < 0 and Colors.Freezing or Colors.ColdRoom
+        local text = string.format("[%sm] %s (%.1f)", getDistanceText(localPosition, coldestRoom), coldestRoom.Name, coldestTemp)
+        setESP("coldest-room", coldestRoom, text, color)
+    else
+        destroyESP("coldest-room")
+    end
+end
+
+local function updateEMF(localPosition)
+    local items = child(map(), "Items")
+    local emfItem = items and items:FindFirstChild("EMF Reader")
+    local level = 0
+
+    if emfItem then
+        for i = 5, 1, -1 do
+            local levelFolder = emfItem:FindFirstChild(tostring(i))
+            if levelFolder then
+                for _, desc in ipairs(levelFolder:GetDescendants()) do
+                    if desc:IsA("BasePart") and desc.Material == Enum.Material.Neon then
+                        level = i
+                        break
+                    end
+                end
+            end
+            if level > 0 then break end
+        end
+    end
+
+    if Config.EMFReaderESP and emfItem and level > 0 then
+        local color = level == 5 and Colors.Ghost or (level >= 3 and Colors.Generator or Colors.EMF)
+        setESP("emf-reader", emfItem, "[" .. getDistanceText(localPosition, emfItem) .. "m] EMF Lv." .. level, color)
+    else
+        destroyESP("emf-reader")
+    end
+
+    local emf5 = level == 5
+    updateEvidence("EMF Level 5", emf5)
+    alertOnce("emf5", emf5, "เจอหลักฐาน", "ตรวจพบ EMF Level 5")
+end
+
+local function getClosestRoomName(position)
+    local zones = child(map(), "Zones")
+    if not zones or not position then return "Unknown" end
+
+    local closestName = "Unknown"
+    local closestDistance = math.huge
+    for _, zone in ipairs(zones:GetChildren()) do
+        local zonePosition = getPosition(zone)
+        if zonePosition then
+            local distance = (position - zonePosition).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestName = zone.Name
+            end
+        end
+    end
+
+    return closestName
+end
+
+local function updateOrb(localPosition)
+    local orbs = child(map(), "Orbs")
+    local orb = orbs and orbs:FindFirstChild("OrbPart")
+    local found = orb ~= nil
+
+    if Config.GhostOrbESP and orb then
+        local position = getPosition(orb)
+        setESP("ghost-orb", orb, "[" .. getDistanceText(localPosition, orb) .. "m] Orb (" .. getClosestRoomName(position) .. ")", Colors.Orb)
+    else
+        destroyESP("ghost-orb")
+    end
+
+    updateEvidence("Ghost Orb", found)
+    alertOnce("orb", found, "เจอหลักฐาน", "ตรวจพบ Ghost Orb")
+end
+
+local function updateUV()
+    local prints = child(map(), "Prints")
+    local found = false
+
+    if prints then
+        found = prints:FindFirstChild("UV_BootL") ~= nil or prints:FindFirstChild("UV_BootR") ~= nil
+        if not found then
+            for _, object in ipairs(prints:GetDescendants()) do
+                if string.find(object.Name, "UV_Hand") then
+                    found = true
+                    break
+                end
+            end
+        end
+    end
+
+    updateEvidence("Ultraviolet", found)
+    alertOnce("uv", found, "เจอหลักฐาน", "ตรวจพบ Ultraviolet")
+end
+
+local function updateSalt()
+    local found = workspace:FindFirstChild("SaltStepped") ~= nil
+    updateEvidence("Salt Stepped", found)
+    alertOnce("salt", found, "ผีเหยียบเกลือ", "ตรวจพบ SaltStepped")
+end
+
+local function updateWriting()
+    local items = child(map(), "Items")
+    local book = items and items:FindFirstChild("Ghost Writing Book")
+    local handle = book and book:FindFirstChild("Handle")
+    local found = false
+
+    if handle then
+        for _, object in ipairs(handle:GetChildren()) do
+            if string.match(object.Name, "^Writing%d+$") then
+                found = true
+                break
+            end
+        end
+    end
+
+    updateEvidence("Ghost Writing", found)
+    alertOnce("writing", found, "เจอหลักฐาน", "ตรวจพบ Ghost Writing")
+end
+
+local CurseDefs = {
+    {
+        Key = "SummoningCircleESP",
+        Id = "curse:summoning-circle",
+        Label = "Summoning Circle",
+        Names = {"SummoningCircle", "Summoning Circle"},
+        Color = Color3.fromRGB(185, 95, 255)
+    },
+    {
+        Key = "BooBooDollESP",
+        Id = "curse:booboo-doll",
+        Label = "BooBoo Doll",
+        Names = {"BooBooDoll", "BooBoo Doll"},
+        Color = Color3.fromRGB(255, 90, 220)
+    },
+    {
+        Key = "MusicBoxESP",
+        Id = "curse:music-box",
+        Label = "Music Box",
+        Names = {"Music Box", " Music Box", "MusicBox"},
+        Color = Color3.fromRGB(255, 210, 80)
+    },
+    {
+        Key = "TarotCardsESP",
+        Id = "curse:tarot-cards",
+        Label = "Tarot Cards",
+        Names = {"Tarot Cards", "TarotCards"},
+        Color = Color3.fromRGB(255, 115, 150)
+    },
+    {
+        Key = "SpiritBoardESP",
+        Id = "curse:spirit-board",
+        Label = "Spirit Board",
+        Names = {"Spirit Board", "SpiritBoard"},
+        Color = Color3.fromRGB(210, 210, 210)
+    }
+}
+
+local function updateCursed(localPosition)
+    local mapObject = map()
+    local containers = {workspace}
+    if mapObject then
+        table.insert(containers, mapObject)
+        local items = child(mapObject, "Items")
+        local cursedSpawns = child(mapObject, "CursedSpawns")
+        if items then table.insert(containers, items) end
+        if cursedSpawns then table.insert(containers, cursedSpawns) end
+    end
+
+    for _, definition in ipairs(CurseDefs) do
+        if Config[definition.Key] then
+            local object = findItemInContainers(definition.Names, containers)
+            if object then
+                setESP(definition.Id, object, "[" .. getDistanceText(localPosition, object) .. "m] " .. definition.Label, definition.Color)
+            else
+                destroyESP(definition.Id)
+            end
+        else
+            destroyESP(definition.Id)
+        end
+    end
+end
+
+local function cleanupInvalidESP()
+    for id, entry in pairs(ESP) do
+        if not entry.Object or not entry.Object.Parent or not entry.Object:IsDescendantOf(workspace) then
+            destroyESP(id)
+        end
+    end
+end
+
+local accum = {
+    fast = 0,
+    normal = 0,
+    slow = 0,
+    cleanup = 0
+}
+
+connect(RunService.Heartbeat, function(dt)
+    if not Running then return end
+
+    accum.fast = accum.fast + dt
+    accum.normal = accum.normal + dt
+    accum.slow = accum.slow + dt
+    accum.cleanup = accum.cleanup + dt
+
+    if accum.fast >= 0.18 then
+        accum.fast = 0
+        local root = getLocalRoot()
+        local localPosition = root and root.Position or nil
+        updateGhost(localPosition)
+        updateSLS(localPosition)
+        updatePlayers(localPosition)
+    end
+
+    if accum.normal >= 0.75 then
+        accum.normal = 0
+        local root = getLocalRoot()
+        local localPosition = root and root.Position or nil
+        updateGenerators(localPosition)
+        updateEMF(localPosition)
+        updateOrb(localPosition)
+        updateCursed(localPosition)
+    end
+
+    if accum.slow >= 1.5 then
+        accum.slow = 0
+        local root = getLocalRoot()
+        local localPosition = root and root.Position or nil
+        updateFullbright()
+        updateColdestRoom(localPosition)
+        updateUV()
+        updateSalt()
+        updateWriting()
+    end
+
+    if accum.cleanup >= 4 then
+        accum.cleanup = 0
+        cleanupInvalidESP()
     end
 end)
 
-Notification.new({
-    Title = "GHOST HUB",
-    Description = "โหลดสำเร็จ! Ultimate Fixed v3",
-    Duration = 5
-})
+connect(Players.PlayerRemoving, function(player)
+    destroyESP("player:" .. player.UserId)
+end)
+
+connect(workspace.ChildAdded, function(object)
+    if object.Name == "Ghost" then
+        alertOnce("ghost", true, "ผีเกิดแล้ว", "พบ workspace.Ghost")
+    elseif object.Name == "SLS_GHOST" then
+        alertOnce("sls", true, "เจอ SLS_GHOST", "พบ workspace.SLS_GHOST")
+    end
+end)
+
+ENV.GhostHubOptimizedUnload = function()
+    Running = false
+    for _, connection in ipairs(Connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+    Connections = {}
+    for id in pairs(ESP) do
+        destroyESP(id)
+    end
+    if ScreenGui then
+        ScreenGui:Destroy()
+    end
+    Lighting.Brightness = OriginalLighting.Brightness
+    Lighting.ClockTime = OriginalLighting.ClockTime
+    Lighting.FogEnd = OriginalLighting.FogEnd
+    Lighting.GlobalShadows = OriginalLighting.GlobalShadows
+    Lighting.Ambient = OriginalLighting.Ambient
+end
+
+notify("GHOST HUB", "โหลดสำเร็จ: Optimized Mobile Edition", 5)
