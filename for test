@@ -1,1 +1,1162 @@
+-- [[ GHOST HUNTING HELPER SCRIPT ]]
+-- UI Library: NOTHING UI Library (by 4lpaca)
+-- Features: ESP, Draggable Evidence Sidebar Tracker, FullBright, Instant Proximity Prompts, Salt Alerts, EMF Monitors
 
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- UI Library Load
+local NothingLibrary = loadstring(game:HttpGetAsync('https://raw.githubusercontent.com/3345-c-a-t-s-u-s/NOTHING/main/source.lua'))()
+local Notification = NothingLibrary.Notification()
+
+-- State & Toggles Configuration
+local toggles = {
+    MasterESP = false,
+    GhostRoom = false,
+    Ghost = false,
+    SLSGhost = false,
+    GhostOrb = false,
+    GhostWritingBook = false,
+    Generator = false,
+    BooBooDoll = false,
+    SummoningCircle = false,
+    TarotCards = false,
+    MusicBox = false,
+    UVPrints = false,
+    FullBright = false,
+    InstantPP = false
+}
+
+local espTextSize = 12
+local customWalkSpeed = 16
+local originalWalkSpeed = 16
+local speedHackEnabled = false
+
+-- ESP Storage
+local activeEsps = {}
+
+-- Sound / Notification trackers
+local saltAlreadyNotified = false
+local lastEmfLevel = 1
+local lastUvCount = 0
+
+-- Setup Core GUI / Player GUI fallback for ESP Text
+local targetGui = (gethui and gethui()) or game:FindFirstChild("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+local espGui = targetGui:FindFirstChild("GhostESP_Gui")
+if espGui then espGui:Destroy() end
+
+espGui = Instance.new("ScreenGui")
+espGui.Name = "GhostESP_Gui"
+espGui.ResetOnSpawn = false
+espGui.IgnoreGuiInset = true
+espGui.Parent = targetGui
+
+-- [[ UTILITIES / HELPERS ]]
+
+-- Helper: Get Center Position of any Instance safely
+local function getInstancePosition(inst)
+    if not inst or not inst:IsDescendantOf(Workspace) then return nil end
+    
+    if inst:IsA("BasePart") then
+        return inst.Position
+    elseif inst:IsA("Model") then
+        if inst.PrimaryPart then
+            return inst.PrimaryPart.Position
+        else
+            local cframe, size = inst:GetBoundingBox()
+            return cframe.Position
+        end
+    end
+    return nil
+end
+
+-- Helper: Check if Ghost Writing Book has been written in
+local function isBookWritten(book)
+    local handle = book:FindFirstChild("Handle")
+    if handle then
+        for _, child in ipairs(handle:GetChildren()) do
+            -- Matches "Writing8" or any other "Writing" variants (1-25)
+            if child.Name:find("Writing") then
+                -- Check transparency if it's a Decal or Part
+                if child:IsA("BasePart") or child:IsA("Decal") or child:IsA("Texture") then
+                    if child.Transparency < 1 then
+                        return true, child.Name
+                    end
+                else
+                    return true, child.Name
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
+-- Helper: Find all Ghost Writing Books in game (ground + players)
+local function findGhostWritingBooks()
+    local books = {}
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local itemsFolder = mapFolder and mapFolder:FindFirstChild("Items")
+    if itemsFolder then
+        for _, child in ipairs(itemsFolder:GetChildren()) do
+            if child.Name == "Ghost Writing Book" then
+                table.insert(books, child)
+            end
+        end
+    end
+    -- Also scan players' characters (if carrying)
+    for _, ply in ipairs(Players:GetPlayers()) do
+        local char = ply.Character
+        if char then
+            for _, child in ipairs(char:GetChildren()) do
+                if child.Name == "Ghost Writing Book" or (child:IsA("Tool") and child.Name == "Ghost Writing Book") then
+                    table.insert(books, child)
+                end
+            end
+        end
+    end
+    return books
+end
+
+-- Helper: Find all Tarot Cards (ground + players)
+local function findTarotCards()
+    local cards = {}
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local itemsFolder = mapFolder and mapFolder:FindFirstChild("Items")
+    if itemsFolder then
+        for _, child in ipairs(itemsFolder:GetChildren()) do
+            if child.Name == "Tarot Cards" then
+                table.insert(cards, child)
+            end
+        end
+    end
+    for _, ply in ipairs(Players:GetPlayers()) do
+        local char = ply.Character
+        if char then
+            for _, child in ipairs(char:GetChildren()) do
+                if child.Name == "Tarot Cards" or (child:IsA("Tool") and child.Name == "Tarot Cards") then
+                    table.insert(cards, child)
+                end
+            end
+        end
+    end
+    return cards
+end
+
+-- Helper: Find all Music Boxes (ground + players)
+local function findMusicBoxes()
+    local boxes = {}
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local itemsFolder = mapFolder and mapFolder:FindFirstChild("Items")
+    if itemsFolder then
+        for _, child in ipairs(itemsFolder:GetChildren()) do
+            if child.Name == "Music Box" then
+                table.insert(boxes, child)
+            end
+        end
+    end
+    for _, ply in ipairs(Players:GetPlayers()) do
+        local char = ply.Character
+        if char then
+            for _, child in ipairs(char:GetChildren()) do
+                if child.Name == "Music Box" or (child:IsA("Tool") and child.Name == "Music Box") then
+                    table.insert(boxes, child)
+                end
+            end
+        end
+    end
+    return boxes
+end
+
+-- Helper: Scan EMF Readers and find the highest level currently showing Neon
+local function getEMFLevel()
+    local maxLevel = 1
+    local readers = {}
+    
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local itemsFolder = mapFolder and mapFolder:FindFirstChild("Items")
+    
+    -- Scan Ground Items
+    if itemsFolder then
+        for _, child in ipairs(itemsFolder:GetChildren()) do
+            if child.Name == "EMF Reader" then
+                table.insert(readers, child)
+            end
+        end
+    end
+    
+    -- Scan Players
+    for _, ply in ipairs(Players:GetPlayers()) do
+        local char = ply.Character
+        if char then
+            for _, child in ipairs(char:GetChildren()) do
+                if child.Name == "EMF Reader" or (child:IsA("Tool") and child.Name == "EMF Reader") then
+                    table.insert(readers, child)
+                end
+            end
+        end
+    end
+    
+    -- Check neon lights on EMF readers
+    for _, reader in ipairs(readers) do
+        for level = 5, 1, -1 do
+            local indicator = reader:FindFirstChild(tostring(level))
+            if indicator and indicator:IsA("BasePart") then
+                if indicator.Material == Enum.Material.Neon then
+                    if level > maxLevel then
+                        maxLevel = level
+                    end
+                    break
+                end
+            end
+        end
+    end
+    
+    return maxLevel
+end
+
+-- Helper: Scan room zones and identify the room with the lowest temperature
+local function getLowestTempRoom()
+    local lowestRoom = nil
+    local lowestTemp = 999.0
+    
+    local mapFolder = Workspace:FindFirstChild("Map")
+    local zonesFolder = mapFolder and mapFolder:FindFirstChild("Zones")
+    if zonesFolder then
+        for _, room in ipairs(zonesFolder:GetChildren()) do
+            -- Look for Temperature value inside the room zone
+            local tempVal = nil
+            for _, child in ipairs(room:GetChildren()) do
+                if child.Name:find("Temperature") and child:IsA("ValueBase") then
+                    tempVal = child
+                    break
+                end
+            end
+            
+            if tempVal and tempVal.Value then
+                local temp = tonumber(tempVal.Value)
+                if temp and temp < lowestTemp then
+                    lowestTemp = temp
+                    lowestRoom = room
+                end
+            end
+        end
+    end
+    return lowestRoom, lowestTemp
+end
+
+-- [[ SIDEBAR TRACKER FRAME (Draggable & Glassmorphic) ]]
+local trackerGui = targetGui:FindFirstChild("GhostHelperTracker")
+if trackerGui then trackerGui:Destroy() end
+
+trackerGui = Instance.new("ScreenGui")
+trackerGui.Name = "GhostHelperTracker"
+trackerGui.ResetOnSpawn = false
+trackerGui.IgnoreGuiInset = true
+trackerGui.Parent = targetGui
+
+-- Draggable Function (Mobile & PC compatible)
+local function makeDraggable(frame, dragHandle)
+    local dragStart, startPos
+    local dragging = false
+
+    dragHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    dragHandle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            if dragging then
+                local delta = input.Position - dragStart
+                frame.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+            end
+        end
+    end)
+end
+
+-- Main Tracker Sidebar Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "TrackerMainFrame"
+mainFrame.Size = UDim2.new(0, 250, 0, 340)
+mainFrame.Position = UDim2.new(1, -270, 0.35, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+mainFrame.BackgroundTransparency = 0.25
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = trackerGui
+
+local uicorner = Instance.new("UICorner")
+uicorner.CornerRadius = UDim.new(0, 10)
+uicorner.Parent = mainFrame
+
+local uistroke = Instance.new("UIStroke")
+uistroke.Color = Color3.fromRGB(80, 80, 80)
+uistroke.Thickness = 1.5
+uistroke.Parent = mainFrame
+
+local strokeGradient = Instance.new("UIGradient")
+strokeGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 195, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(170, 0, 255))
+})
+strokeGradient.Parent = uistroke
+
+-- Header Area (Draggable handle)
+local header = Instance.new("Frame")
+header.Name = "Header"
+header.Size = UDim2.new(1, 0, 0, 35)
+header.BackgroundTransparency = 1
+header.Parent = mainFrame
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(0.8, 0, 1, 0)
+titleText.Position = UDim2.new(0.06, 0, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "📊 EVIDENCE TRACKER"
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.Font = Enum.Font.GothamBold
+titleText.TextSize = 12
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = header
+
+local titleGradient = Instance.new("UIGradient")
+titleGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 195, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 150))
+})
+titleGradient.Parent = titleText
+
+-- Collapse/Minimize Button inside header
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+minimizeBtn.Position = UDim2.new(1, -35, 0.5, -15)
+minimizeBtn.BackgroundTransparency = 1
+minimizeBtn.Text = "—"
+minimizeBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 14
+minimizeBtn.Parent = header
+
+-- Underline separator
+local sep = Instance.new("Frame")
+sep.Size = UDim2.new(0.88, 0, 0, 1)
+sep.Position = UDim2.new(0.06, 0, 0, 35)
+sep.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+sep.BorderSizePixel = 0
+sep.Parent = mainFrame
+
+-- Scroll Frame for Items
+local content = Instance.new("ScrollingFrame")
+content.Size = UDim2.new(0.88, 0, 0.82, 0)
+content.Position = UDim2.new(0.06, 0, 0.13, 0)
+content.BackgroundTransparency = 1
+content.BorderSizePixel = 0
+content.ScrollBarThickness = 2
+content.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
+content.CanvasSize = UDim2.new(0, 0, 0, 0)
+content.Parent = mainFrame
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Padding = UDim.new(0, 8)
+listLayout.Parent = content
+
+listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    content.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
+end)
+
+-- Function to create evidence tracker entries
+local function createTrackerItem(title, initialValue)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 30)
+    frame.BackgroundTransparency = 1
+    frame.Parent = content
+
+    local titleLbl = Instance.new("TextLabel")
+    titleLbl.Size = UDim2.new(0.55, 0, 1, 0)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Text = title
+    titleLbl.TextColor3 = Color3.fromRGB(180, 180, 180)
+    titleLbl.Font = Enum.Font.GothamSemibold
+    titleLbl.TextSize = 11
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+    titleLbl.Parent = frame
+
+    local valLbl = Instance.new("TextLabel")
+    valLbl.Size = UDim2.new(0.45, 0, 1, 0)
+    valLbl.Position = UDim2.new(0.55, 0, 0, 0)
+    valLbl.BackgroundTransparency = 1
+    valLbl.Text = initialValue
+    valLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
+    valLbl.Font = Enum.Font.GothamBold
+    valLbl.TextSize = 11
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.Parent = frame
+
+    return {
+        Frame = frame,
+        ValueLabel = valLbl
+    }
+end
+
+-- Create evidence entry widgets
+local roomWidget = createTrackerItem("Lowest Room Temp", "Scanning...")
+local freezingWidget = createTrackerItem("Freezing Temp", "❌ No")
+local slsWidget = createTrackerItem("SLS Ghost", "❌ No")
+local orbWidget = createTrackerItem("Ghost Orb", "❌ No")
+local uvWidget = createTrackerItem("UV Print / Foot", "❌ No")
+local writingWidget = createTrackerItem("Ghost Writing", "❌ No")
+local emfWidget = createTrackerItem("EMF Level", "Level 1")
+local saltWidget = createTrackerItem("Salt Stepped", "❌ No")
+
+-- Floating toggle button for tracker (mobile friendly)
+local trackerToggleBtn = Instance.new("TextButton")
+trackerToggleBtn.Name = "TrackerToggleBtn"
+trackerToggleBtn.Size = UDim2.new(0, 90, 0, 30)
+trackerToggleBtn.Position = UDim2.new(1, -100, 0.2, 0)
+trackerToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+trackerToggleBtn.BackgroundTransparency = 0.3
+trackerToggleBtn.Text = "📊 Tracker"
+trackerToggleBtn.TextColor3 = Color3.fromRGB(0, 195, 255)
+trackerToggleBtn.Font = Enum.Font.GothamBold
+trackerToggleBtn.TextSize = 11
+trackerToggleBtn.Visible = false
+trackerToggleBtn.Parent = trackerGui
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 8)
+btnCorner.Parent = trackerToggleBtn
+
+local btnStroke = Instance.new("UIStroke")
+btnStroke.Color = Color3.fromRGB(0, 195, 255)
+btnStroke.Thickness = 1
+btnStroke.Parent = trackerToggleBtn
+
+makeDraggable(mainFrame, header)
+makeDraggable(trackerToggleBtn, trackerToggleBtn)
+
+local isTrackerExpanded = true
+local function setTrackerExpanded(expanded)
+    isTrackerExpanded = expanded
+    if expanded then
+        mainFrame.Visible = true
+        mainFrame:TweenSize(UDim2.new(0, 250, 0, 340), "Out", "Quint", 0.3, true)
+        trackerToggleBtn.Visible = false
+    else
+        mainFrame:TweenSize(UDim2.new(0, 250, 0, 0), "Out", "Quint", 0.3, true, function()
+            mainFrame.Visible = false
+            trackerToggleBtn.Visible = true
+        end)
+    end
+end
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    setTrackerExpanded(false)
+end)
+
+trackerToggleBtn.MouseButton1Click:Connect(function()
+    setTrackerExpanded(true)
+end)
+
+
+-- [[ UTILITIES IMPLEMENTATIONS ]]
+
+-- WalkSpeed loop
+local humConnection
+local function applyWalkSpeedLoop()
+    if humConnection then humConnection:Disconnect() end
+    
+    local function hookHumanoid(char)
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            humConnection = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                if speedHackEnabled and hum.WalkSpeed ~= customWalkSpeed then
+                    hum.WalkSpeed = customWalkSpeed
+                elseif not speedHackEnabled and hum.WalkSpeed == customWalkSpeed then
+                    hum.WalkSpeed = originalWalkSpeed
+                end
+            end)
+            if speedHackEnabled then
+                originalWalkSpeed = 16
+                hum.WalkSpeed = customWalkSpeed
+            end
+        end
+    end
+    
+    if LocalPlayer.Character then
+        hookHumanoid(LocalPlayer.Character)
+    end
+    LocalPlayer.CharacterAdded:Connect(hookHumanoid)
+end
+
+-- FullBright implementation
+local brightLight = nil
+local originalLightingSettings = {
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    Brightness = Lighting.Brightness,
+    FogEnd = Lighting.FogEnd
+}
+
+local function setFullBright(enable)
+    if enable then
+        -- Brighten Ambient
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        Lighting.Brightness = 2
+        Lighting.FogEnd = 999999
+        
+        -- Spawn local point light on character head
+        task.spawn(function()
+            while toggles.FullBright do
+                local char = LocalPlayer.Character
+                local head = char and char:FindFirstChild("Head")
+                if head then
+                    if not brightLight or brightLight.Parent ~= head then
+                        if brightLight then brightLight:Destroy() end
+                        brightLight = Instance.new("PointLight")
+                        brightLight.Range = 1000
+                        brightLight.Brightness = 5
+                        brightLight.Parent = head
+                    end
+                end
+                task.wait(1)
+            end
+        end)
+    else
+        -- Restore Lighting
+        Lighting.Ambient = originalLightingSettings.Ambient
+        Lighting.OutdoorAmbient = originalLightingSettings.OutdoorAmbient
+        Lighting.Brightness = originalLightingSettings.Brightness
+        Lighting.FogEnd = originalLightingSettings.FogEnd
+        
+        if brightLight then
+            brightLight:Destroy()
+            brightLight = nil
+        end
+    end
+end
+
+-- Instant Proximity Prompts
+local ppConnection = nil
+local function setInstantPP(enable)
+    if enable then
+        if ppConnection then return end
+        ppConnection = ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
+            if prompt and prompt.Parent then
+                fireproximityprompt(prompt)
+            end
+        end)
+        Notification.new({
+            Title = "Instant Prompts",
+            Description = "Instant Proximity Prompts เปิดใช้งานแล้ว!",
+            Duration = 3,
+            Icon = "rbxassetid://8997385628"
+        })
+    else
+        if ppConnection then
+            ppConnection:Disconnect()
+            ppConnection = nil
+        end
+        Notification.new({
+            Title = "Instant Prompts",
+            Description = "Instant Proximity Prompts ปิดใช้งานแล้ว",
+            Duration = 3,
+            Icon = "rbxassetid://8997385628"
+        })
+    end
+end
+
+
+-- [[ ESP ENGINE ]]
+
+local function updateESP()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local playerPos = root.Position
+
+    local currentTargets = {}
+
+    -- Sub-helper to add ESP target
+    local function addTarget(instance, name, color, isRoom)
+        if not instance then return end
+        local pos = getInstancePosition(instance)
+        if not pos then return end
+        
+        local dist = (playerPos - pos).Magnitude
+        currentTargets[instance] = {
+            Name = name,
+            Color = color,
+            Distance = dist,
+            IsRoom = isRoom
+        }
+    end
+
+    -- 1. Ghost Room ESP
+    if toggles.GhostRoom then
+        local lowestRoom, lowestTemp = getLowestTempRoom()
+        if lowestRoom then
+            local tempText = string.format("👻 Ghost Room: %s (%.1f°C)", lowestRoom.Name, lowestTemp)
+            addTarget(lowestRoom, tempText, Color3.fromRGB(0, 195, 255), true)
+        end
+    end
+
+    -- 2. Ghost ESP
+    if toggles.Ghost then
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            if obj.Name == "Ghost" or obj.Name == "ghost" then
+                addTarget(obj, "👹 GHOST", Color3.fromRGB(255, 0, 50))
+            end
+        end
+    end
+
+    -- 3. SLS Ghost ESP
+    if toggles.SLSGhost then
+        local sls = Workspace:FindFirstChild("SLS_GHOST")
+        if sls then
+            addTarget(sls, "👾 SLS GHOST", Color3.fromRGB(0, 255, 255))
+        end
+    end
+
+    -- 4. Ghost Orb ESP
+    if toggles.GhostOrb then
+        local mapFolder = Workspace:FindFirstChild("Map")
+        local orbsFolder = mapFolder and mapFolder:FindFirstChild("Orbs")
+        if orbsFolder then
+            for _, obj in ipairs(orbsFolder:GetChildren()) do
+                if obj.Name == "OrbPart" or obj:IsA("BasePart") then
+                    addTarget(obj, "✨ GHOST ORB", Color3.fromRGB(230, 230, 255))
+                end
+            end
+        end
+    end
+
+    -- 5. Ghost Writing Book ESP
+    if toggles.GhostWritingBook then
+        local books = findGhostWritingBooks()
+        for _, book in ipairs(books) do
+            local written, writingType = isBookWritten(book)
+            local name = written and ("📖 GHOST WRITING (" .. writingType .. ")") or "📘 GHOST WRITING BOOK"
+            local color = written and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(230, 230, 0)
+            local targetPart = book:FindFirstChild("Handle") or book
+            addTarget(targetPart, name, color)
+        end
+    end
+
+    -- 6. Generator ESP
+    if toggles.Generator then
+        local mapFolder = Workspace:FindFirstChild("Map")
+        local gensFolder = mapFolder and mapFolder:FindFirstChild("Generators")
+        if gensFolder then
+            for _, obj in ipairs(gensFolder:GetChildren()) do
+                local meshPart = obj:FindFirstChild("GeneratorMesh") or obj
+                addTarget(meshPart, "⚡ GENERATOR", Color3.fromRGB(255, 150, 0))
+            end
+        end
+    end
+
+    -- 7. BooBoo Doll ESP
+    if toggles.BooBooDoll then
+        local doll = Workspace:FindFirstChild("BooBooDoll")
+        if doll then
+            addTarget(doll, "🧸 BOOBOO DOLL", Color3.fromRGB(255, 0, 255))
+        end
+    end
+
+    -- 8. Summoning Circle ESP
+    if toggles.SummoningCircle then
+        local circle = Workspace:FindFirstChild("SummoningCircle")
+        if circle then
+            addTarget(circle, "⭕ SUMMONING CIRCLE", Color3.fromRGB(180, 0, 0))
+        end
+    end
+
+    -- 9. Tarot Cards ESP
+    if toggles.TarotCards then
+        local cards = findTarotCards()
+        for _, card in ipairs(cards) do
+            local handle = card:FindFirstChild("Handle") or card
+            addTarget(handle, "🃏 TAROT CARDS", Color3.fromRGB(255, 100, 0))
+        end
+    end
+
+    -- 10. Music Box ESP
+    if toggles.MusicBox then
+        local boxes = findMusicBoxes()
+        for _, box in ipairs(boxes) do
+            local handle = box:FindFirstChild("Handle") or box
+            addTarget(handle, "🎵 MUSIC BOX", Color3.fromRGB(255, 100, 200))
+        end
+    end
+
+    -- 11. UV Prints ESP
+    if toggles.UVPrints then
+        local mapFolder = Workspace:FindFirstChild("Map")
+        local printsFolder = mapFolder and mapFolder:FindFirstChild("Prints")
+        if printsFolder then
+            for _, obj in ipairs(printsFolder:GetChildren()) do
+                if obj.Name == "UV_Hand" then
+                    addTarget(obj, "✋ UV HANDPRINT", Color3.fromRGB(150, 0, 255))
+                elseif obj.Name == "UV_FootL" or obj.Name == "UV_FootR" then
+                    addTarget(obj, "👣 UV FOOTPRINT", Color3.fromRGB(150, 0, 255))
+                end
+            end
+        end
+    end
+
+    -- Clean up inactive ESP items
+    for inst, espData in pairs(activeEsps) do
+        if not toggles.MasterESP or not currentTargets[inst] then
+            if espData.Highlight then espData.Highlight:Destroy() end
+            if espData.Billboard then espData.Billboard:Destroy() end
+            activeEsps[inst] = nil
+        end
+    end
+
+    -- Create or Update ESP visualizations
+    if toggles.MasterESP then
+        for inst, data in pairs(currentTargets) do
+            local esp = activeEsps[inst]
+            if not esp then
+                -- Create Highlight
+                local hl = Instance.new("Highlight")
+                if data.IsRoom then
+                    -- Outline only for rooms so it doesn't block player visibility
+                    hl.FillColor = data.Color
+                    hl.OutlineColor = data.Color
+                    hl.FillOpacity = 1.0 -- Transparent fill
+                    hl.OutlineOpacity = 0.5
+                else
+                    hl.FillColor = data.Color
+                    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    hl.FillOpacity = 0.4
+                    hl.OutlineOpacity = 0.8
+                end
+                hl.Parent = inst
+
+                -- Create BillboardGui
+                local bill = Instance.new("BillboardGui")
+                bill.AlwaysOnTop = true
+                bill.Size = UDim2.new(0, 160, 0, 40)
+                bill.StudsOffset = data.IsRoom and Vector3.new(0, 6, 0) or Vector3.new(0, 2.5, 0)
+                bill.Adornee = inst
+                bill.Parent = espGui
+
+                local label = Instance.new("TextLabel")
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.BackgroundTransparency = 1
+                label.TextColor3 = data.Color
+                label.TextSize = espTextSize
+                label.Font = Enum.Font.GothamBold
+                label.TextStrokeTransparency = 0
+                label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                label.Parent = bill
+
+                activeEsps[inst] = {
+                    Highlight = hl,
+                    Billboard = bill,
+                    Label = label
+                }
+                esp = activeEsps[inst]
+            end
+
+            -- Update Distance & Label
+            esp.Label.Text = string.format("%s\n[%d studs]", data.Name, math.round(data.Distance))
+            esp.Label.TextSize = espTextSize
+        end
+    end
+end
+
+
+-- [[ CONSTRUCT NOTHING UI WINDOW ]]
+
+local Windows = NothingLibrary.new({
+    Title = "GHOST HUNTING ESP",
+    Description = "Ghost Hunting Helper by Antigravity",
+    Keybind = Enum.KeyCode.LeftControl,
+    Logo = 'http://www.roblox.com/asset/?id=18898582662'
+})
+
+-- TAB 1: ESP Configuration
+local EspTab = Windows:NewTab({
+    Title = "ESP Options",
+    Description = "Config ESP & Highlights",
+    Icon = "rbxassetid://7733960981"
+})
+
+local EspControlSection = EspTab:NewSection({
+    Title = "ESP Master Controls",
+    Icon = "rbxassetid://7743869054",
+    Position = "Left"
+})
+
+local EspTargetsSection = EspTab:NewSection({
+    Title = "ESP Target List",
+    Icon = "rbxassetid://7733964719",
+    Position = "Right"
+})
+
+-- Master Controls
+EspControlSection:NewToggle({
+    Title = "Master ESP (เปิด/ปิดทั้งหมด)",
+    Default = false,
+    Callback = function(v)
+        toggles.MasterESP = v
+    end
+})
+
+-- Target Toggles
+EspTargetsSection:NewToggle({
+    Title = "Ghost Room (ห้องผี)",
+    Default = false,
+    Callback = function(v) toggles.GhostRoom = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "Ghost (ตัวผี)",
+    Default = false,
+    Callback = function(v) toggles.Ghost = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "SLS Ghost",
+    Default = false,
+    Callback = function(v) toggles.SLSGhost = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "Ghost Orb (ลูกแก้วผี)",
+    Default = false,
+    Callback = function(v) toggles.GhostOrb = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "Ghost Writing Book (สมุดเขียน)",
+    Default = false,
+    Callback = function(v) toggles.GhostWritingBook = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "Generator (เครื่องปั่นไฟ)",
+    Default = false,
+    Callback = function(v) toggles.Generator = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "BooBoo Doll (ตุ๊กตาผี)",
+    Default = false,
+    Callback = function(v) toggles.BooBooDoll = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "Summoning Circle (วงแหวน)",
+    Default = false,
+    Callback = function(v) toggles.SummoningCircle = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "Tarot Cards (การ์ด)",
+    Default = false,
+    Callback = function(v) toggles.TarotCards = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "Music Box (กล่องเพลง)",
+    Default = false,
+    Callback = function(v) toggles.MusicBox = v end
+})
+
+EspTargetsSection:NewToggle({
+    Title = "UV Prints (รอยเท้า/รอยมือ)",
+    Default = false,
+    Callback = function(v) toggles.UVPrints = v end
+})
+
+
+-- TAB 2: Player & Settings Tab
+local UtilTab = Windows:NewTab({
+    Title = "Utilities",
+    Description = "Helper Hacks & Settings",
+    Icon = "rbxassetid://7734053495"
+})
+
+local PlayerSection = UtilTab:NewSection({
+    Title = "Player Options",
+    Icon = "rbxassetid://7743869054",
+    Position = "Left"
+})
+
+local VisualSettingsSection = UtilTab:NewSection({
+    Title = "Visual Settings",
+    Icon = "rbxassetid://7733964719",
+    Position = "Right"
+})
+
+PlayerSection:NewToggle({
+    Title = "FullBright (ตาสว่าง)",
+    Default = false,
+    Callback = function(v)
+        toggles.FullBright = v
+        setFullBright(v)
+    end
+})
+
+PlayerSection:NewToggle({
+    Title = "Instant Proximity Prompts",
+    Default = false,
+    Callback = function(v)
+        toggles.InstantPP = v
+        setInstantPP(v)
+    end
+})
+
+PlayerSection:NewToggle({
+    Title = "Enable Speed Hack",
+    Default = false,
+    Callback = function(v)
+        speedHackEnabled = v
+        applyWalkSpeedLoop()
+    end
+})
+
+PlayerSection:NewSlider({
+    Title = "WalkSpeed Custom",
+    Min = 16,
+    Max = 60,
+    Default = 25,
+    Callback = function(v)
+        customWalkSpeed = v
+        if speedHackEnabled then
+            applyWalkSpeedLoop()
+        end
+    end
+})
+
+VisualSettingsSection:NewSlider({
+    Title = "ESP Font Size",
+    Min = 8,
+    Max = 24,
+    Default = 12,
+    Callback = function(v)
+        espTextSize = v
+    end
+})
+
+
+-- TAB 3: Information & Credits
+local InfoTab = Windows:NewTab({
+    Title = "Credits",
+    Description = "About the script",
+    Icon = "rbxassetid://7733964719"
+})
+
+local InfoSection = InfoTab:NewSection({
+    Title = "Developer Credits",
+    Icon = "rbxassetid://7743869054",
+    Position = "Left"
+})
+
+InfoSection:NewTitle("Ghost Helper v1.0")
+InfoSection:NewTitle("Created by Antigravity")
+InfoSection:NewTitle("UI Library: NOTHING UI")
+
+InfoSection:NewButton({
+    Title = "Copy Discord Link",
+    Callback = function()
+        setclipboard("https://discord.gg/BH6pE7jesa")
+        Notification.new({
+            Title = "Discord Link",
+            Description = "คัดลอกลิงก์ Discord ลง Clipboard แล้ว!",
+            Duration = 3,
+            Icon = "rbxassetid://8997385628"
+        })
+    end
+})
+
+
+-- [[ MONITORING LOOP (Updates Sidebar & Alerts) ]]
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        local ok, err = pcall(function()
+            -- 1. Lowest Room Temp & Freezing Temp Check
+            local lowestRoom, lowestTemp = getLowestTempRoom()
+            if lowestRoom then
+                roomWidget.ValueLabel.Text = string.format("%s (%.1f°C)", lowestRoom.Name, lowestTemp)
+                roomWidget.ValueLabel.TextColor3 = Color3.fromRGB(0, 195, 255)
+                
+                if lowestTemp < 0 then
+                    freezingWidget.ValueLabel.Text = "✅ DETECTED"
+                    freezingWidget.ValueLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+                else
+                    freezingWidget.ValueLabel.Text = "❌ No"
+                    freezingWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+                end
+            else
+                roomWidget.ValueLabel.Text = "No rooms found"
+                roomWidget.ValueLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+                freezingWidget.ValueLabel.Text = "❌ No"
+                freezingWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+            end
+
+            -- 2. SLS Ghost
+            local sls = Workspace:FindFirstChild("SLS_GHOST")
+            if sls then
+                slsWidget.ValueLabel.Text = "✅ DETECTED"
+                slsWidget.ValueLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+            else
+                slsWidget.ValueLabel.Text = "❌ No"
+                slsWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+            end
+
+            -- 3. Ghost Orb
+            local mapFolder = Workspace:FindFirstChild("Map")
+            local orbsFolder = mapFolder and mapFolder:FindFirstChild("Orbs")
+            local orbFound = false
+            if orbsFolder then
+                for _, child in ipairs(orbsFolder:GetChildren()) do
+                    if child.Name == "OrbPart" or child:IsA("BasePart") then
+                        orbFound = true
+                        break
+                    end
+                end
+            end
+            if orbFound then
+                orbWidget.ValueLabel.Text = "✅ DETECTED"
+                orbWidget.ValueLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+            else
+                orbWidget.ValueLabel.Text = "❌ No"
+                orbWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+            end
+
+            -- 4. UV Prints Count & Change Alert
+            local printsFolder = mapFolder and mapFolder:FindFirstChild("Prints")
+            local uvFound = false
+            local uvCount = 0
+            if printsFolder then
+                for _, child in ipairs(printsFolder:GetChildren()) do
+                    if child.Name == "UV_Hand" or child.Name == "UV_FootL" or child.Name == "UV_FootR" then
+                        uvFound = true
+                        uvCount = uvCount + 1
+                    end
+                end
+            end
+            if uvFound then
+                uvWidget.ValueLabel.Text = string.format("✅ DETECTED (%d)", uvCount)
+                uvWidget.ValueLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+                
+                -- Notification on new print
+                if uvCount > lastUvCount then
+                    Notification.new({
+                        Title = "ร่องรอยคราบผี (UV Print)",
+                        Description = "พบรอยมือหรือรอยเท้าผีอันใหม่ในแมพ!",
+                        Duration = 4,
+                        Icon = "rbxassetid://8997385628"
+                    })
+                end
+            else
+                uvWidget.ValueLabel.Text = "❌ No"
+                uvWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+            end
+            lastUvCount = uvCount
+
+            -- 5. Ghost Writing
+            local books = findGhostWritingBooks()
+            local writingFound = false
+            local writtenName = ""
+            for _, book in ipairs(books) do
+                local written, name = isBookWritten(book)
+                if written then
+                    writingFound = true
+                    writtenName = name
+                    break
+                end
+            end
+            if writingFound then
+                writingWidget.ValueLabel.Text = "✅ DETECTED"
+                writingWidget.ValueLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+            else
+                writingWidget.ValueLabel.Text = "❌ No"
+                writingWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+            end
+
+            -- 6. EMF level monitor
+            local emfVal = getEMFLevel()
+            emfWidget.ValueLabel.Text = "Level " .. tostring(emfVal)
+            if emfVal == 5 then
+                emfWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 0, 50)
+                if lastEmfLevel < 5 then
+                    Notification.new({
+                        Title = "🚨 EMF Level 5!",
+                        Description = "ตรวจพบ EMF ระดับ 5 แล้ว (หลักฐานสำคัญ)!",
+                        Duration = 5,
+                        Icon = "rbxassetid://8997385628"
+                    })
+                end
+            elseif emfVal >= 3 then
+                emfWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 150, 0)
+            else
+                emfWidget.ValueLabel.TextColor3 = Color3.fromRGB(250, 250, 250)
+            end
+            lastEmfLevel = emfVal
+
+            -- 7. Salt warning
+            local salt = Workspace:FindFirstChild("SaltStepped")
+            if salt then
+                saltWidget.ValueLabel.Text = "⚠️ STEPPED"
+                saltWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 150, 0)
+                
+                if not saltAlreadyNotified then
+                    Notification.new({
+                        Title = "🧂 เกลือโดนเหยียบ",
+                        Description = "ผีเหยียบเกลือแล้ว! (Salt Stepped)",
+                        Duration = 4,
+                        Icon = "rbxassetid://8997385628"
+                    })
+                    saltAlreadyNotified = true
+                end
+            else
+                saltWidget.ValueLabel.Text = "❌ No"
+                saltWidget.ValueLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+                saltAlreadyNotified = false
+            end
+
+            -- 8. Run ESP Frame update
+            updateESP()
+        end)
+        if not ok then
+            warn("Ghost helper loop error: " .. tostring(err))
+        end
+    end
+end)
+
+Notification.new({
+    Title = "Ghost Hunting Helper",
+    Description = "โหลดสคริปต์เสร็จสมบูรณ์! กด Left Control เพื่อย่อ-ขยายหน้าจอเมนู",
+    Duration = 5,
+    Icon = "rbxassetid://8997385628"
+})
