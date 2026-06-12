@@ -1,13 +1,50 @@
--- Ghost Hub Optimized
--- Focus: lower workspace scan cost, cleaner ESP lifecycle, mobile-friendly overlay.
+--[[
+    Ghost Hub Optimized - Compkiller UI Edition
+    Press Left Control to open / close
+]]
 
+local Compkiller = loadstring(game:HttpGet("https://raw.githubusercontent.com/4lpaca-pin/CompKiller/refs/heads/main/src/source.luau"))();
+
+-- Create Notification --
+local Notifier = Compkiller.newNotify();
+
+-- Create Config Manager --
+local ConfigManager = Compkiller:ConfigManager({
+    Directory = "GhostHub-Optimized",
+    Config = "Config"
+});
+
+-- Loading UI --
+Compkiller:Loader("rbxassetid://120245531583106", 2.5).yield();
+
+-- Creating Window --
+local Window = Compkiller.new({
+    Name = "GHOST HUB",
+    Keybind = "LeftControl",
+    Logo = "rbxassetid://120245531583106",
+    Scale = Compkiller.Scale.Window,
+    TextSize = 15,
+});
+
+-- Watermark --
+local Watermark = Window:Watermark();
+Watermark:AddText({ Icon = "user", Text = "GhostHub" });
+Watermark:AddText({ Icon = "clock", Text = Compkiller:GetDate() });
+
+local TimeW = Watermark:AddText({ Icon = "timer", Text = "TIME" });
+task.spawn(function()
+    while true do task.wait()
+        TimeW:SetText(Compkiller:GetTimeNow());
+    end
+end)
+
+Watermark:AddText({ Icon = "server", Text = Compkiller.Version });
+
+-- Services & Variables --
 local ENV = (getgenv and getgenv()) or _G
 if ENV.GhostHubOptimizedUnload then
     pcall(ENV.GhostHubOptimizedUnload)
 end
-
-local NothingLibrary = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/3345-c-a-t-s-u-s/NOTHING/main/source.lua"))()
-local Notification = NothingLibrary.Notification()
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -20,16 +57,16 @@ local Camera = workspace.CurrentCamera
 local Running = true
 local Connections = {}
 
-local function connect(signal, callback)
-    local connection = signal:Connect(callback)
-    table.insert(Connections, connection)
-    return connection
-end
-
 local scriptUrl = ENV.GHOST_HUB_URL or ""
 local queueTeleport = queue_on_teleport or queueonteleport
 if queueTeleport and scriptUrl ~= "" then
     queueTeleport("loadstring(game:HttpGet('" .. scriptUrl .. "'))()")
+end
+
+local function connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(Connections, connection)
+    return connection
 end
 
 local Config = {
@@ -79,14 +116,16 @@ local Colors = {
 
 local function notify(title, description, duration)
     if Config.Notifications then
-        Notification.new({
+        Notifier.new({
             Title = title,
-            Description = description,
-            Duration = duration or 4
+            Content = description,
+            Duration = duration or 4,
+            Icon = "rbxassetid://120245531583106"
         })
     end
 end
 
+-- ESP Logic --
 local function child(parent, name)
     return parent and parent:FindFirstChild(name) or nil
 end
@@ -226,6 +265,7 @@ local function setESP(id, object, text, color)
     entry.Label.TextColor3 = color
 end
 
+-- Overlays --
 local function createPanel(name, titleText)
     local frame = Instance.new("Frame")
     frame.Name = name
@@ -427,25 +467,28 @@ if Camera then
 end
 layoutOverlay()
 
-local Windows = NothingLibrary.new({
-    Title = "GHOST HUB",
-    Description = "Optimized Mobile",
-    Keybind = Enum.KeyCode.LeftControl,
-    Logo = "http://www.roblox.com/asset/?id=18898582662"
-})
+-- UI Categories & Tabs --
+Window:DrawCategory({ Name = "Main" })
 
-local TabESP = Windows:NewTab({Title = "ESP", Description = "Main objects", Icon = "rbxassetid://7733960981"})
-local TabEvidence = Windows:NewTab({Title = "Evidence", Description = "Auto detect", Icon = "rbxassetid://7733964719"})
-local TabCurse = Windows:NewTab({Title = "Cursed", Description = "Cursed items", Icon = "rbxassetid://7743869054"})
-local TabUtility = Windows:NewTab({Title = "Utility", Description = "Tools", Icon = "rbxassetid://7733964719"})
+local TabESP = Window:DrawTab({ Name = "ESP", Icon = "eye", EnableScrolling = true })
+local TabEvidence = Window:DrawTab({ Name = "Evidence", Icon = "search", EnableScrolling = true })
+local TabCurse = Window:DrawTab({ Name = "Cursed", Icon = "skull", EnableScrolling = true })
+local TabUtility = Window:DrawTab({ Name = "Utility", Icon = "wrench", EnableScrolling = true })
 
-local SectionMainESP = TabESP:NewSection({Title = "Object ESP", Position = "Left"})
-local SectionPlayerESP = TabESP:NewSection({Title = "Player ESP", Position = "Right"})
-local SectionEvidence = TabEvidence:NewSection({Title = "Evidence Overlay", Position = "Left"})
-local SectionCurse = TabCurse:NewSection({Title = "Cursed Objects", Position = "Left"})
-local SectionUtility = TabUtility:NewSection({Title = "Environment", Position = "Left"})
-local SectionScripts = TabUtility:NewSection({Title = "Scripts", Position = "Right"})
+Window:DrawCategory({ Name = "Settings" })
 
+-- UI Sections --
+local SectionMainESP = TabESP:DrawSection({ Name = "Object ESP", Position = "left" })
+local SectionPlayerESP = TabESP:DrawSection({ Name = "Player ESP", Position = "right" })
+
+local SectionEvidence = TabEvidence:DrawSection({ Name = "Overlay", Position = "left" })
+
+local SectionCurse = TabCurse:DrawSection({ Name = "Cursed Objects", Position = "left" })
+
+local SectionUtility = TabUtility:DrawSection({ Name = "Environment", Position = "left" })
+local SectionScripts = TabUtility:DrawSection({ Name = "Scripts", Position = "right" })
+
+-- UI Elements --
 local function setAllESP(value)
     Config.GeneratorESP = value
     Config.ColdestRoomESP = value
@@ -466,14 +509,15 @@ local function setAllESP(value)
     notify("ESP", value and "เปิด ESP หลักทั้งหมดแล้ว" or "ปิด ESP หลักทั้งหมดแล้ว", 3)
 end
 
-SectionMainESP:NewButton({Title = "Open Main ESP", Callback = function() setAllESP(true) end})
-SectionMainESP:NewButton({Title = "Close Main ESP", Callback = function() setAllESP(false) end})
-SectionMainESP:NewToggle({Title = "Generator ESP", Default = false, Callback = function(value) Config.GeneratorESP = value if not value then destroyESPWithPrefix("generator:") end end})
-SectionMainESP:NewToggle({Title = "Coldest Room ESP", Default = false, Callback = function(value) Config.ColdestRoomESP = value if not value then destroyESP("coldest-room") end end})
-SectionMainESP:NewToggle({Title = "Ghost ESP", Default = false, Callback = function(value) Config.GhostESP = value if not value then destroyESP("ghost") end end})
-SectionMainESP:NewToggle({Title = "SLS Ghost ESP", Default = false, Callback = function(value) Config.SLSGhostESP = value if not value then destroyESP("sls-ghost") end end})
-SectionMainESP:NewToggle({Title = "EMF Reader ESP", Default = false, Callback = function(value) Config.EMFReaderESP = value if not value then destroyESP("emf-reader") end end})
-SectionMainESP:NewToggle({Title = "Ghost Orb ESP", Default = false, Callback = function(value) Config.GhostOrbESP = value if not value then destroyESP("ghost-orb") end end})
+SectionMainESP:AddButton({ Name = "Open Main ESP", Callback = function() setAllESP(true) end })
+SectionMainESP:AddButton({ Name = "Close Main ESP", Callback = function() setAllESP(false) end })
+
+SectionMainESP:AddToggle({ Name = "Generator ESP", Flag = "GeneratorESP", Default = false, Callback = function(value) Config.GeneratorESP = value if not value then destroyESPWithPrefix("generator:") end end })
+SectionMainESP:AddToggle({ Name = "Coldest Room ESP", Flag = "ColdestRoomESP", Default = false, Callback = function(value) Config.ColdestRoomESP = value if not value then destroyESP("coldest-room") end end })
+SectionMainESP:AddToggle({ Name = "Ghost ESP", Flag = "GhostESP", Default = false, Callback = function(value) Config.GhostESP = value if not value then destroyESP("ghost") end end })
+SectionMainESP:AddToggle({ Name = "SLS Ghost ESP", Flag = "SLSGhostESP", Default = false, Callback = function(value) Config.SLSGhostESP = value if not value then destroyESP("sls-ghost") end end })
+SectionMainESP:AddToggle({ Name = "EMF Reader ESP", Flag = "EMFReaderESP", Default = false, Callback = function(value) Config.EMFReaderESP = value if not value then destroyESP("emf-reader") end end })
+SectionMainESP:AddToggle({ Name = "Ghost Orb ESP", Flag = "GhostOrbESP", Default = false, Callback = function(value) Config.GhostOrbESP = value if not value then destroyESP("ghost-orb") end end })
 
 local PlayerList = {"All"}
 for _, player in ipairs(Players:GetPlayers()) do
@@ -482,12 +526,12 @@ for _, player in ipairs(Players:GetPlayers()) do
     end
 end
 
-SectionPlayerESP:NewToggle({Title = "Player ESP", Default = false, Callback = function(value) Config.PlayerESP = value if not value then destroyESPWithPrefix("player:") end end})
-SectionPlayerESP:NewDropdown({Title = "Select Player", Data = PlayerList, Default = "All", Callback = function(value) Config.SelectedPlayer = value end})
+SectionPlayerESP:AddToggle({ Name = "Player ESP", Flag = "PlayerESP", Default = false, Callback = function(value) Config.PlayerESP = value if not value then destroyESPWithPrefix("player:") end end })
+SectionPlayerESP:AddDropdown({ Name = "Select Player", Default = "All", Values = PlayerList, Flag = "SelectedPlayer", Callback = function(value) Config.SelectedPlayer = value end })
 
-SectionEvidence:NewToggle({Title = "Show Evidence Board", Default = true, Callback = function(value) Config.ShowEvidenceBoard = value EvidenceFrame.Visible = value end})
-SectionEvidence:NewToggle({Title = "Show Speed Tracker", Default = true, Callback = function(value) Config.ShowSpeedTracker = value SpeedFrame.Visible = value end})
-SectionEvidence:NewToggle({Title = "Notifications", Default = true, Callback = function(value) Config.Notifications = value end})
+SectionEvidence:AddToggle({ Name = "Show Evidence Board", Flag = "ShowEvidenceBoard", Default = true, Callback = function(value) Config.ShowEvidenceBoard = value EvidenceFrame.Visible = value end })
+SectionEvidence:AddToggle({ Name = "Show Speed Tracker", Flag = "ShowSpeedTracker", Default = true, Callback = function(value) Config.ShowSpeedTracker = value SpeedFrame.Visible = value end })
+SectionEvidence:AddToggle({ Name = "Notifications", Flag = "Notifications", Default = true, Callback = function(value) Config.Notifications = value end })
 
 local function setAllCursed(value)
     Config.SummoningCircleESP = value
@@ -501,16 +545,17 @@ local function setAllCursed(value)
     notify("Cursed", value and "เปิด ESP ไอเทมคำสาปทั้งหมดแล้ว" or "ปิด ESP ไอเทมคำสาปทั้งหมดแล้ว", 3)
 end
 
-SectionCurse:NewButton({Title = "Open Cursed ESP", Callback = function() setAllCursed(true) end})
-SectionCurse:NewButton({Title = "Close Cursed ESP", Callback = function() setAllCursed(false) end})
-SectionCurse:NewToggle({Title = "Summoning Circle", Default = false, Callback = function(value) Config.SummoningCircleESP = value if not value then destroyESP("curse:summoning-circle") end end})
-SectionCurse:NewToggle({Title = "BooBoo Doll", Default = false, Callback = function(value) Config.BooBooDollESP = value if not value then destroyESP("curse:booboo-doll") end end})
-SectionCurse:NewToggle({Title = "Music Box", Default = false, Callback = function(value) Config.MusicBoxESP = value if not value then destroyESP("curse:music-box") end end})
-SectionCurse:NewToggle({Title = "Tarot Cards", Default = false, Callback = function(value) Config.TarotCardsESP = value if not value then destroyESP("curse:tarot-cards") end end})
-SectionCurse:NewToggle({Title = "Spirit Board", Default = false, Callback = function(value) Config.SpiritBoardESP = value if not value then destroyESP("curse:spirit-board") end end})
+SectionCurse:AddButton({ Name = "Open Cursed ESP", Callback = function() setAllCursed(true) end })
+SectionCurse:AddButton({ Name = "Close Cursed ESP", Callback = function() setAllCursed(false) end })
+SectionCurse:AddToggle({ Name = "Summoning Circle", Flag = "SummoningCircleESP", Default = false, Callback = function(value) Config.SummoningCircleESP = value if not value then destroyESP("curse:summoning-circle") end end })
+SectionCurse:AddToggle({ Name = "BooBoo Doll", Flag = "BooBooDollESP", Default = false, Callback = function(value) Config.BooBooDollESP = value if not value then destroyESP("curse:booboo-doll") end end })
+SectionCurse:AddToggle({ Name = "Music Box", Flag = "MusicBoxESP", Default = false, Callback = function(value) Config.MusicBoxESP = value if not value then destroyESP("curse:music-box") end end })
+SectionCurse:AddToggle({ Name = "Tarot Cards", Flag = "TarotCardsESP", Default = false, Callback = function(value) Config.TarotCardsESP = value if not value then destroyESP("curse:tarot-cards") end end })
+SectionCurse:AddToggle({ Name = "Spirit Board", Flag = "SpiritBoardESP", Default = false, Callback = function(value) Config.SpiritBoardESP = value if not value then destroyESP("curse:spirit-board") end end })
 
-SectionUtility:NewToggle({
-    Title = "Fullbright",
+SectionUtility:AddToggle({
+    Name = "Fullbright",
+    Flag = "Fullbright",
     Default = false,
     Callback = function(value)
         Config.Fullbright = value
@@ -524,14 +569,23 @@ SectionUtility:NewToggle({
     end
 })
 
-SectionScripts:NewButton({
-    Title = "Infinite Yield",
+SectionScripts:AddButton({
+    Name = "Infinite Yield",
     Callback = function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
         notify("Script", "Injected Infinite Yield", 4)
     end
 })
 
+-- Creating Config Tab --
+local ConfigUI = Window:DrawConfig({
+    Name = "Config",
+    Icon = "folder",
+    Config = ConfigManager
+})
+ConfigUI:Init()
+
+-- Game Logic --
 local Alerts = {}
 local function alertOnce(key, active, title, description)
     if active and not Alerts[key] then
@@ -1044,4 +1098,4 @@ ENV.GhostHubOptimizedUnload = function()
     Lighting.Ambient = OriginalLighting.Ambient
 end
 
-notify("GHOST HUB", "โหลดสำเร็จ: Optimized Mobile Edition", 5)
+notify("GHOST HUB", "โหลดสำเร็จ: Optimized Compkiller Edition", 5)
