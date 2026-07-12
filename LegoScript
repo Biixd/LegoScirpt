@@ -1,29 +1,21 @@
 --[[
-    Ghost Hub Optimized - Fluent UI Edition
-    Press Left Control to open / close
-    ✅ ลบ UI เก่าอัตโนมัติเมื่อรันซ้ำ
-    ✅ ตรวจจับ Blink Speed (ความเร็วกระพริบของผี)
+    Ghost Hub Optimized - WindUI Edition
+    Press Left Shift to open / close
 ]]
 
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
--- ============== [ ล้าง UI เก่าก่อน ] ==============
 local ENV = (getgenv and getgenv()) or _G
 if ENV.GhostHubOptimizedUnload then
     pcall(ENV.GhostHubOptimizedUnload)
 end
 
--- ทำลายหน้าต่าง Fluent เก่า (ถ้ามี)
-local function destroyOldFluentWindow()
-    local old = game:GetService("CoreGui"):FindFirstChild("GhostHubFluent")
+local function destroyOldWindUIWindow()
+    local old = game:GetService("CoreGui"):FindFirstChild("GhostHubWindUI")
     if old then old:Destroy() end
 end
-destroyOldFluentWindow()
--- =================================================
+destroyOldWindUIWindow()
 
--- Services & Variables --
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
@@ -72,18 +64,16 @@ local Colors = {
     Panel = Color3.fromRGB(13, 15, 20)
 }
 
--- ============== [ Notifications ] ==============
 local function notify(title, description, duration)
-    if Fluent.Options and Fluent.Options.Notifications and Fluent.Options.Notifications.Value == false then return end
     pcall(function()
-        Fluent:Notify({
+        WindUI:Notify({
             Title = title,
             Content = description,
-            Duration = duration or 4
+            Duration = duration or 4,
+            Icon = "ghost"
         })
     end)
 end
--- ==============================================
 
 -- ============== [ Watermark ] ==============
 local WatermarkGui = Instance.new("ScreenGui")
@@ -127,7 +117,6 @@ task.spawn(function()
         task.wait(1)
     end
 end)
--- ============================================
 
 -- ============== [ ESP Logic ] ==============
 local function child(parent, name)
@@ -431,7 +420,7 @@ local function layoutOverlay()
     EvidenceScale.Scale = scale
     SpeedScale.Scale = scale
     EvidenceFrame.Size = UDim2.fromOffset(width, evidenceCollapsed and 38 or 214)
-    SpeedFrame.Size = UDim2.fromOffset(speedWidth, speedCollapsed and 38 or 160) -- ขยายความสูง
+    SpeedFrame.Size = UDim2.fromOffset(speedWidth, speedCollapsed and 38 or 160)
 
     if mobile then
         EvidenceFrame.Position = UDim2.fromOffset(viewport.X - width * scale - 8, 8)
@@ -463,64 +452,66 @@ if Camera then
 end
 layoutOverlay()
 
--- ============== [ UI: Fluent ] ==============
-local Window = Fluent:CreateWindow({
+-- ============== [ UI: WindUI ] ==============
+local Window = WindUI:CreateWindow({
     Title = "GHOST HUB",
-    SubTitle = "Optimized Edition",
-    TabWidth = 160,
+    Icon = "ghost",
+    Author = "Optimized Edition",
+    Folder = "GhostHub",
     Size = UDim2.fromOffset(580, 460),
-    Acrylic = true,
+    ToggleKey = Enum.KeyCode.LeftShift,
     Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.LeftControl
+    Resizable = true,
 })
 
--- ตั้งชื่อหน้าต่าง Fluent ให้ลบซ้ำได้
-local FluentScreenGui = Window.Gui
+local FluentScreenGui = Window.Gui or CoreGui:FindFirstChild("WindUI")
 if FluentScreenGui and FluentScreenGui:IsA("ScreenGui") then
-    FluentScreenGui.Name = "GhostHubFluent"
-else
-    -- fallback ถ้า Window.Gui ไม่ใช่ ScreenGui
-    for _, gui in ipairs(CoreGui:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Name == "Fluent" then
-            gui.Name = "GhostHubFluent"
-            FluentScreenGui = gui
-            break
-        end
-    end
+    FluentScreenGui.Name = "GhostHubWindUI"
 end
 
 local Tabs = {
-    ESP = Window:AddTab({ Title = "ESP", Icon = "eye" }),
-    Evidence = Window:AddTab({ Title = "Evidence", Icon = "search" }),
-    Cursed = Window:AddTab({ Title = "Cursed", Icon = "skull" }),
-    Utility = Window:AddTab({ Title = "Utility", Icon = "wrench" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+    ESP = Window:Tab({ Title = "ESP", Icon = "eye" }),
+    Evidence = Window:Tab({ Title = "Evidence", Icon = "search" }),
+    Cursed = Window:Tab({ Title = "Cursed", Icon = "skull" }),
+    Utility = Window:Tab({ Title = "Utility", Icon = "wrench" }),
 }
 
-local Options = Fluent.Options
+local Options = {}
+
+local function registerToggle(tab, key, config)
+    local toggle = tab:Toggle(config)
+    Options[key] = toggle
+    return toggle
+end
+
+local function registerDropdown(tab, key, config)
+    local dropdown = tab:Dropdown(config)
+    Options[key] = dropdown
+    return dropdown
+end
 
 -- ESP Tab --
-Tabs.ESP:AddParagraph({ Title = "Object ESP", Content = "Toggle visibility of in-game objects" })
+Tabs.ESP:Paragraph({ Title = "Object ESP", Desc = "Toggle visibility of in-game objects" })
 
-Tabs.ESP:AddButton({ Title = "Open Main ESP", Callback = function()
-    Options.GeneratorESP:SetValue(true)
-    Options.ColdestRoomESP:SetValue(true)
-    Options.GhostESP:SetValue(true)
-    Options.SLSGhostESP:SetValue(true)
-    Options.EMFReaderESP:SetValue(true)
-    Options.GhostOrbESP:SetValue(true)
-    Options.PlayerESP:SetValue(true)
+Tabs.ESP:Button({ Title = "Open Main ESP", Callback = function()
+    Options.GeneratorESP:Set(true)
+    Options.ColdestRoomESP:Set(true)
+    Options.GhostESP:Set(true)
+    Options.SLSGhostESP:Set(true)
+    Options.EMFReaderESP:Set(true)
+    Options.GhostOrbESP:Set(true)
+    Options.PlayerESP:Set(true)
     notify("ESP", "เปิด ESP หลักทั้งหมดแล้ว", 3)
 end })
 
-Tabs.ESP:AddButton({ Title = "Close Main ESP", Callback = function()
-    Options.GeneratorESP:SetValue(false)
-    Options.ColdestRoomESP:SetValue(false)
-    Options.GhostESP:SetValue(false)
-    Options.SLSGhostESP:SetValue(false)
-    Options.EMFReaderESP:SetValue(false)
-    Options.GhostOrbESP:SetValue(false)
-    Options.PlayerESP:SetValue(false)
+Tabs.ESP:Button({ Title = "Close Main ESP", Callback = function()
+    Options.GeneratorESP:Set(false)
+    Options.ColdestRoomESP:Set(false)
+    Options.GhostESP:Set(false)
+    Options.SLSGhostESP:Set(false)
+    Options.EMFReaderESP:Set(false)
+    Options.GhostOrbESP:Set(false)
+    Options.PlayerESP:Set(false)
     destroyESPWithPrefix("player:")
     destroyESPWithPrefix("generator:")
     destroyESP("coldest-room")
@@ -531,15 +522,15 @@ Tabs.ESP:AddButton({ Title = "Close Main ESP", Callback = function()
     notify("ESP", "ปิด ESP หลักทั้งหมดแล้ว", 3)
 end })
 
-Tabs.ESP:AddToggle("GeneratorESP", { Title = "Generator ESP", Default = false })
-Tabs.ESP:AddToggle("ColdestRoomESP", { Title = "Coldest Room ESP", Default = false })
-Tabs.ESP:AddToggle("GhostESP", { Title = "Ghost ESP", Default = false })
-Tabs.ESP:AddToggle("SLSGhostESP", { Title = "SLS Ghost ESP", Default = false })
-Tabs.ESP:AddToggle("EMFReaderESP", { Title = "EMF Reader ESP", Default = false })
-Tabs.ESP:AddToggle("GhostOrbESP", { Title = "Ghost Orb ESP", Default = false })
+registerToggle(Tabs.ESP, "GeneratorESP", { Title = "Generator ESP", Value = false, Callback = function() end })
+registerToggle(Tabs.ESP, "ColdestRoomESP", { Title = "Coldest Room ESP", Value = false, Callback = function() end })
+registerToggle(Tabs.ESP, "GhostESP", { Title = "Ghost ESP", Value = false, Callback = function() end })
+registerToggle(Tabs.ESP, "SLSGhostESP", { Title = "SLS Ghost ESP", Value = false, Callback = function() end })
+registerToggle(Tabs.ESP, "EMFReaderESP", { Title = "EMF Reader ESP", Value = false, Callback = function() end })
+registerToggle(Tabs.ESP, "GhostOrbESP", { Title = "Ghost Orb ESP", Value = false, Callback = function() end })
 
-Tabs.ESP:AddParagraph({ Title = "Player ESP", Content = "" })
-Tabs.ESP:AddToggle("PlayerESP", { Title = "Player ESP", Default = false })
+Tabs.ESP:Paragraph({ Title = "Player ESP", Desc = "" })
+registerToggle(Tabs.ESP, "PlayerESP", { Title = "Player ESP", Value = false, Callback = function() end })
 
 local initialPlayers = {"All"}
 for _, player in ipairs(Players:GetPlayers()) do
@@ -547,79 +538,73 @@ for _, player in ipairs(Players:GetPlayers()) do
         table.insert(initialPlayers, player.Name)
     end
 end
-Tabs.ESP:AddDropdown("SelectedPlayer", {
+registerDropdown(Tabs.ESP, "SelectedPlayer", {
     Title = "Select Player",
     Values = initialPlayers,
-    Default = "All",
-    Multi = false
+    Value = "All",
+    Multi = false,
+    Callback = function() end
 })
 
 -- Evidence Tab --
-Tabs.Evidence:AddParagraph({ Title = "Overlay", Content = "Toggle HUD panels" })
-Tabs.Evidence:AddToggle("ShowEvidenceBoard", { Title = "Show Evidence Board", Default = true })
-Tabs.Evidence:AddToggle("ShowSpeedTracker", { Title = "Show Speed Tracker", Default = true })
-Tabs.Evidence:AddToggle("Notifications", { Title = "Notifications", Default = true })
+Tabs.Evidence:Paragraph({ Title = "Overlay", Desc = "Toggle HUD panels" })
+registerToggle(Tabs.Evidence, "ShowEvidenceBoard", { Title = "Show Evidence Board", Value = true, Callback = function(val) EvidenceFrame.Visible = val end })
+registerToggle(Tabs.Evidence, "ShowSpeedTracker", { Title = "Show Speed Tracker", Value = true, Callback = function(val) SpeedFrame.Visible = val end })
+registerToggle(Tabs.Evidence, "Notifications", { Title = "Notifications", Value = true, Callback = function() end })
 
 -- Cursed Tab --
-Tabs.Cursed:AddParagraph({ Title = "Cursed Objects", Content = "Summoning circle, Music box, etc." })
-Tabs.Cursed:AddButton({ Title = "Open Cursed ESP", Callback = function()
-    Options.SummoningCircleESP:SetValue(true)
-    Options.BooBooDollESP:SetValue(true)
-    Options.MusicBoxESP:SetValue(true)
-    Options.TarotCardsESP:SetValue(true)
-    Options.SpiritBoardESP:SetValue(true)
+Tabs.Cursed:Paragraph({ Title = "Cursed Objects", Desc = "Summoning circle, Music box, etc." })
+Tabs.Cursed:Button({ Title = "Open Cursed ESP", Callback = function()
+    Options.SummoningCircleESP:Set(true)
+    Options.BooBooDollESP:Set(true)
+    Options.MusicBoxESP:Set(true)
+    Options.TarotCardsESP:Set(true)
+    Options.SpiritBoardESP:Set(true)
     notify("Cursed", "เปิด ESP ไอเทมคำสาปทั้งหมดแล้ว", 3)
 end })
-Tabs.Cursed:AddButton({ Title = "Close Cursed ESP", Callback = function()
-    Options.SummoningCircleESP:SetValue(false)
-    Options.BooBooDollESP:SetValue(false)
-    Options.MusicBoxESP:SetValue(false)
-    Options.TarotCardsESP:SetValue(false)
-    Options.SpiritBoardESP:SetValue(false)
+Tabs.Cursed:Button({ Title = "Close Cursed ESP", Callback = function()
+    Options.SummoningCircleESP:Set(false)
+    Options.BooBooDollESP:Set(false)
+    Options.MusicBoxESP:Set(false)
+    Options.TarotCardsESP:Set(false)
+    Options.SpiritBoardESP:Set(false)
     destroyESPWithPrefix("curse:")
     notify("Cursed", "ปิด ESP ไอเทมคำสาปทั้งหมดแล้ว", 3)
 end })
-Tabs.Cursed:AddToggle("SummoningCircleESP", { Title = "Summoning Circle", Default = false })
-Tabs.Cursed:AddToggle("BooBooDollESP", { Title = "BooBoo Doll", Default = false })
-Tabs.Cursed:AddToggle("MusicBoxESP", { Title = "Music Box", Default = false })
-Tabs.Cursed:AddToggle("TarotCardsESP", { Title = "Tarot Cards", Default = false })
-Tabs.Cursed:AddToggle("SpiritBoardESP", { Title = "Spirit Board", Default = false })
+registerToggle(Tabs.Cursed, "SummoningCircleESP", { Title = "Summoning Circle", Value = false, Callback = function(val) if not val then destroyESP("curse:summoning-circle") end end })
+registerToggle(Tabs.Cursed, "BooBooDollESP", { Title = "BooBoo Doll", Value = false, Callback = function(val) if not val then destroyESP("curse:booboo-doll") end end })
+registerToggle(Tabs.Cursed, "MusicBoxESP", { Title = "Music Box", Value = false, Callback = function(val) if not val then destroyESP("curse:music-box") end end })
+registerToggle(Tabs.Cursed, "TarotCardsESP", { Title = "Tarot Cards", Value = false, Callback = function(val) if not val then destroyESP("curse:tarot-cards") end end })
+registerToggle(Tabs.Cursed, "SpiritBoardESP", { Title = "Spirit Board", Value = false, Callback = function(val) if not val then destroyESP("curse:spirit-board") end end })
 
 -- Utility Tab --
-Tabs.Utility:AddParagraph({ Title = "Environment", Content = "" })
-Tabs.Utility:AddToggle("Fullbright", { Title = "Fullbright", Default = false })
+Tabs.Utility:Paragraph({ Title = "Environment", Desc = "" })
+registerToggle(Tabs.Utility, "Fullbright", { Title = "Fullbright", Value = false, Callback = function(val)
+    if not val then
+        Lighting.Brightness = OriginalLighting.Brightness
+        Lighting.ClockTime = OriginalLighting.ClockTime
+        Lighting.FogEnd = OriginalLighting.FogEnd
+        Lighting.GlobalShadows = OriginalLighting.GlobalShadows
+        Lighting.Ambient = OriginalLighting.Ambient
+    end
+end })
 
-Tabs.Utility:AddParagraph({ Title = "Scripts", Content = "" })
-Tabs.Utility:AddButton({ Title = "Infinite Yield", Callback = function()
+Tabs.Utility:Paragraph({ Title = "Scripts", Desc = "" })
+Tabs.Utility:Button({ Title = "Infinite Yield", Callback = function()
     loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
     notify("Script", "Injected Infinite Yield", 4)
 end })
 
--- Settings Tab (Config)
-SaveManager:SetLibrary(Fluent)
-InterfaceManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-InterfaceManager:SetFolder("GhostHub")
-SaveManager:SetFolder("GhostHub/config")
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-SaveManager:BuildConfigSection(Tabs.Settings)
-
-Window:SelectTab(1)
-
-Fluent:Notify({
-    Title = "Ghost Hub",
-    Content = "Script loaded successfully",
-    Duration = 8
-})
-
-SaveManager:LoadAutoloadConfig()
+notify("GHOST HUB", "โหลดสำเร็จ: WindUI Edition พร้อมระบบ Blink Tracker", 5)
 
 -- ============== [ Game Logic ] ==============
 local Alerts = {}
 local function alertOnce(key, active, title, description)
     if active and not Alerts[key] then
         Alerts[key] = true
-        notify(title, description, 5)
+        if Options.Notifications.Value then
+            notify(title, description, 5)
+        end
     elseif not active then
         Alerts[key] = false
     end
@@ -675,12 +660,10 @@ local MAX_HISTORY = 10
 -- Blink Tracker --
 local ghostWasVisible = false
 local blinkStartTime = 0
-local blinkHistory = {}  -- เก็บระยะเวลาการกระพริบล่าสุด (วินาที)
+local blinkHistory = {}
 local MAX_BLINK_HISTORY = 5
 
 local function isGhostVisible(ghost)
-    -- เช็คจากค่า Transparency ของทุก BasePart ในโมเดล
-    -- ถ้ามีส่วนใดส่วนหนึ่งที่ Transparency < 0.5 ถือว่ามองเห็น
     local parts = ghost:GetDescendants()
     for _, obj in ipairs(parts) do
         if obj:IsA("BasePart") and obj.Transparency < 0.5 then
@@ -709,17 +692,15 @@ local function updateBlink(ghost)
     local visible = isGhostVisible(ghost)
 
     if visible and not ghostWasVisible then
-        -- ผีกลับมามองเห็น -> คำนวณระยะเวลาที่หายไป
         local now = os.clock()
         if blinkStartTime > 0 then
             local blinkDuration = now - blinkStartTime
-            if blinkDuration > 0.05 and blinkDuration < 60 then -- กันค่าผิดปกติ
+            if blinkDuration > 0.05 and blinkDuration < 60 then
                 table.insert(blinkHistory, blinkDuration)
                 if #blinkHistory > MAX_BLINK_HISTORY then
                     table.remove(blinkHistory, 1)
                 end
 
-                -- คำนวณค่าเฉลี่ย
                 local sum = 0
                 for _, v in ipairs(blinkHistory) do
                     sum = sum + v
@@ -732,7 +713,6 @@ local function updateBlink(ghost)
         end
         blinkStartTime = 0
     elseif not visible and ghostWasVisible then
-        -- ผีเริ่มหายตัว
         blinkStartTime = os.clock()
     end
 
@@ -813,7 +793,7 @@ end
 local function updateGhost(localPosition)
     local ghost = workspace:FindFirstChild("Ghost")
     updateGhostSpeed(ghost)
-    updateBlink(ghost) -- เช็คการกระพริบทุกครั้ง
+    updateBlink(ghost)
     if Options.GhostESP.Value and ghost then
         setESP("ghost", ghost, "[" .. getDistanceText(localPosition, ghost) .. "m] GHOST", Colors.Ghost)
     else
@@ -823,7 +803,6 @@ local function updateGhost(localPosition)
     return ghost
 end
 
--- (ฟังก์ชันอื่น ๆ คงเดิม)
 local function updateSLS(localPosition)
     local slsGhost = workspace:FindFirstChild("SLS_GHOST")
     if Options.SLSGhostESP.Value and slsGhost then
@@ -1065,42 +1044,6 @@ connect(workspace.ChildAdded, function(object)
     elseif object.Name == "SLS_GHOST" then alertOnce("sls", true, "เจอ SLS_GHOST", "พบ workspace.SLS_GHOST") end
 end)
 
--- การเปลี่ยนค่า Toggle จาก UI ต้องล้าง ESP เมื่อปิด
-local function bindESPCleanup(option, cleanupFn)
-    option:OnChanged(function(val)
-        if not val then cleanupFn() end
-    end)
-end
-
-bindESPCleanup(Options.PlayerESP, function() destroyESPWithPrefix("player:") end)
-bindESPCleanup(Options.GeneratorESP, function() destroyESPWithPrefix("generator:") end)
-bindESPCleanup(Options.ColdestRoomESP, function() destroyESP("coldest-room") end)
-bindESPCleanup(Options.GhostESP, function() destroyESP("ghost") end)
-bindESPCleanup(Options.SLSGhostESP, function() destroyESP("sls-ghost") end)
-bindESPCleanup(Options.EMFReaderESP, function() destroyESP("emf-reader") end)
-bindESPCleanup(Options.GhostOrbESP, function() destroyESP("ghost-orb") end)
-
-for _, def in ipairs(CurseDefs) do
-    Options[def.Flag]:OnChanged(function(val)
-        if not val then destroyESP(def.Id) end
-    end)
-end
-
--- Overlay visibility
-Options.ShowEvidenceBoard:OnChanged(function(val) EvidenceFrame.Visible = val end)
-Options.ShowSpeedTracker:OnChanged(function(val) SpeedFrame.Visible = val end)
-
--- Fullbright reset
-Options.Fullbright:OnChanged(function(val)
-    if not val then
-        Lighting.Brightness = OriginalLighting.Brightness
-        Lighting.ClockTime = OriginalLighting.ClockTime
-        Lighting.FogEnd = OriginalLighting.FogEnd
-        Lighting.GlobalShadows = OriginalLighting.GlobalShadows
-        Lighting.Ambient = OriginalLighting.Ambient
-    end
-end)
-
 -- ============== [ Unload ] ==============
 ENV.GhostHubOptimizedUnload = function()
     Running = false
@@ -1118,5 +1061,3 @@ ENV.GhostHubOptimizedUnload = function()
     Lighting.GlobalShadows = OriginalLighting.GlobalShadows
     Lighting.Ambient = OriginalLighting.Ambient
 end
-
-notify("GHOST HUB", "โหลดสำเร็จ: Fluent Edition พร้อมระบบ Blink Tracker", 5)
