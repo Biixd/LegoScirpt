@@ -1,0 +1,191 @@
+--[[ Infinity Lobby Finder for Blair v3 (WindUI + AutoExecute)
+  Usage: loadstring(readfile("infinity_finder.lua"))()
+]]
+local ENV = (getgenv and getgenv()) or _G
+ENV.InfinityFinderHops = ENV.InfinityFinderHops or 0
+if ENV.InfinityAutoExec == nil then ENV.InfinityAutoExec = true end
+local MAX_HOPS = 8
+local PLACE_ID = 6137321701
+
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local _waitLP = 0
+while not LocalPlayer and _waitLP < 30 do
+    task.wait(1) _waitLP += 1
+    LocalPlayer = Players.LocalPlayer
+end
+if not LocalPlayer then
+    local ps = Players:GetPlayers()
+    LocalPlayer = ps[1]
+end
+
+-- UI
+local old = CoreGui:FindFirstChild("InfinityFinderUI")
+if old then old:Destroy() end
+
+local Window = WindUI:CreateWindow({
+    Title = "INFINITY FINDER",
+    Icon = "radar",
+    Author = "Blair",
+    Folder = "InfinityFinder",
+    Size = UDim2.fromOffset(420, 320),
+    ToggleKey = Enum.KeyCode.RightShift,
+    Theme = "Dark",
+    Resizable = true,
+})
+local gui = Window.Gui or CoreGui:FindFirstChild("WindUI")
+if gui and gui:IsA("ScreenGui") then gui.Name = "InfinityFinderUI" end
+
+local Tab = Window:Tab({ Title = "Finder", Icon = "search" })
+local statusPara = Tab:Paragraph({ Title = "Status", Desc = "ยังไม่ได้สแกน" })
+
+local function setStatus(title, desc)
+    pcall(function()
+        statusPara:Set({ Title = title, Desc = desc })
+    end)
+end
+
+local function notify(title, text, dur)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = title, Text = text, Duration = dur or 5,
+        })
+    end)
+    print("[InfinityFinder] " .. title .. " - " .. text)
+end
+
+-- core logic
+local function getLobbyList()
+    if not LocalPlayer then return nil end
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    for _, d in ipairs(pg:GetDescendants()) do
+        if d.Name == "ScrollingList" then return d end
+    end
+    return nil
+end
+
+local function isInfinityLobby(frame)
+    local icon = frame:FindFirstChild("InfiniteIcon", true)
+    return icon ~= nil and icon.Visible == true and (icon.ImageTransparency or 0) < 1
+end
+
+local function isLocked(frame)
+    local lock = frame:FindFirstChild("LockedIcon", true)
+    if not lock then return false end
+    if lock.Visible == false then return false end
+    if (lock.ImageTransparency or 0) >= 1 then return false end
+    return true
+end
+
+local function lobbyInfo(frame)
+    local pn = frame:FindFirstChild("PlayerName", true)
+    local ml = frame:FindFirstChild("MapLabel", true)
+    local portraits = 0
+    local lu = frame:FindFirstChild("LobbyUsers", true)
+    if lu then
+        for _, p in ipairs(lu:GetDescendants()) do
+            if p.Name == "PortraitImage" then portraits += 1 end
+        end
+    end
+    return { host = pn and pn.Text or "?", map = ml and ml.Text or "?", players = portraits }
+end
+
+local Scanning = false
+local function doScan(autoHop)
+    if Scanning then return end
+    Scanning = true
+    task.spawn(function()
+        local waited = 0
+        while not getLobbyList() and waited < 15 do task.wait(1) waited += 1 end
+        task.wait(2)
+        local list = getLobbyList()
+        if not list then
+            setStatus("ผิดพลาด", "โหลดรายชื่อล็อบบี้ไม่ขึ้น")
+            notify("ผิดพลาด", "โหลดรายชื่อล็อบบี้ไม่ขึ้น", 5)
+            Scanning = false
+            return
+        end
+        local infTotal, infOpen, lockedInf = 0, {}, 0
+        for _, c in ipairs(list:GetChildren()) do
+            if c.Name == "PlayerLobby" and isInfinityLobby(c) then
+                infTotal += 1
+                if isLocked(c) then lockedInf += 1
+                else table.insert(infOpen, lobbyInfo(c)) end
+            end
+        end
+        if #infOpen > 0 then
+            ENV.InfinityFinderHops = 0
+            table.sort(infOpen, function(a, b) return a.players > b.players end)
+            local names = {}
+            for _, l in ipairs(infOpen) do
+                table.insert(names, l.host .. " (" .. l.players .. "คน, " .. l.map .. ")")
+            end
+            setStatus("เจอห้อง Infinity แล้ว " .. #infOpen .. " ห้อง", table.concat(names, " | "):sub(1, 220))
+            notify("เจอห้อง Infinity แล้ว " .. #infOpen .. " ห้อง", names[1], 8)
+            task.wait(2) -- ให้อ่านแจ้งเตือนทันก่อนปิด
+            pcall(function() Window:Destroy() end)
+            pcall(function()
+                local g = game:GetService("CoreGui"):FindFirstChild("InfinityFinderUI")
+                if g then g:Destroy() end
+            end)
+            return
+        else
+            local reason = infTotal == 0
+                and "เซิร์ฟนี้ไม่มีห้อง Infinity เลย"
+                or ("เจอ Infinity " .. infTotal .. " ห้องแต่ล็อคกุญแจหมด")
+            setStatus("ไม่เจอห้องที่เข้าได้", reason .. " (hop " .. ENV.InfinityFinderHops .. "/" .. MAX_HOPS .. ")")
+            notify("ไม่เจอห้องที่เข้าได้", reason, 4)
+            if autoHop then
+                if ENV.InfinityFinderHops >= MAX_HOPS then
+                    setStatus("ครบโควตาแล้ว", "สุ่มมา " .. MAX_HOPS .. " เซิร์ฟ: " .. reason)
+                    notify("ครบโควตาแล้ว", reason, 6)
+                else
+                    ENV.InfinityFinderHops += 1
+                    local qt = queue_on_teleport or queueonteleport
+                    if qt then qt('loadstring(readfile("infinity_finder.lua"))()') end
+                    notify("ย้ายเซิร์ฟเวอร์ (" .. ENV.InfinityFinderHops .. "/" .. MAX_HOPS .. ")", reason, 4)
+                    task.wait(1.5)
+                    TeleportService:Teleport(PLACE_ID, LocalPlayer)
+                end
+            end
+        end
+        Scanning = false
+    end)
+end
+
+-- controls
+Tab:Toggle({
+    Title = "AutoExecute",
+    Desc = "สแกนเองตอนเปิด + ย้ายเซิร์ฟเองถ้าไม่เจอ",
+    Value = ENV.InfinityAutoExec,
+    Callback = function(val)
+        ENV.InfinityAutoExec = val
+        setStatus("AutoExecute: " .. (val and "ON" or "OFF"), val and "จะสแกน + ย้ายเซิร์ฟอัตโนมัติ" or "กด Scan เองเท่านั้น")
+        if val then doScan(true) end
+    end,
+})
+
+Tab:Button({
+    Title = "Scan Now",
+    Desc = "สแกนหาห้อง Infinity เดี๋ยวนี้ (ไม่ย้ายเซิร์ฟ)",
+    Callback = function() doScan(false) end,
+})
+
+Tab:Button({
+    Title = "Server Hop",
+    Desc = "ย้ายเซิร์ฟเวอร์ทันที",
+    Callback = function()
+        ENV.InfinityFinderHops += 1
+        local qt = queue_on_teleport or queueonteleport
+        if qt then qt('loadstring(readfile("infinity_finder.lua"))()') end
+        TeleportService:Teleport(PLACE_ID, LocalPlayer)
+    end,
+})
+
+setStatus("พร้อม", "AutoExecute " .. (ENV.InfinityAutoExec and "ON - กำลังสแกน..." or "OFF - กด Scan Now"))
+if ENV.InfinityAutoExec then doScan(true) end
