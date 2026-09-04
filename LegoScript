@@ -290,7 +290,6 @@ local GHOST_DATA = {
   ["Shade"]={"EMF Level 5","SLS Anomaly","Ghost Writing"},
   ["Spirit"]={"Ultraviolet","Ghost Writing","Spirit Box"},
   ["Strigoi"]={"Ultraviolet","Ghost Orb","EMF Level 5"},
-  ["Vessyl"]={"Ghost Writing","Ghost Orb","Ultraviolet"},
   ["Vuult"]={"EMF Level 5","Ghost Orb","SLS Anomaly"},
   ["Wraith"]={"Freezing Temperatures","Ghost Orb","SLS Anomaly"},
   ["Yama"]={"Ghost Writing","Spirit Box","SLS Anomaly"},
@@ -309,7 +308,7 @@ local function evidenceServerStates()
     ["Spirit Box"] = EvidenceState["Spirit Box"] and EvidenceState["Spirit Box"].Found or false,
   }
 end
-local GhostHeaderLabel = addLabel(EvidenceFrame, 20, "Possible: (22)", 20)
+local GhostHeaderLabel = addLabel(EvidenceFrame, 20, "Possible: (21)", 20)
 GhostHeaderLabel.Font = Enum.Font.GothamBold
 GhostHeaderLabel.TextColor3 = Colors.Text
 local GhostListLabel = addLabel(EvidenceFrame, 21, "Banshee, Demon, ...", 90)
